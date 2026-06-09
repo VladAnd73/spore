@@ -285,9 +285,11 @@ currently read?". Run it after every `/invite` or `/remove` to
 confirm the new visibility set. An empty `channels` array means
 the bot has not been invited anywhere yet.
 
-The `id` (starts with `C` for public, `G` for legacy private
-groups) is what every other method takes as the `channel=`
-parameter. The `name` is the human-readable handle in the UI.
+The `id` is a `C`-prefixed conversation id for both public and
+private channels (legacy `G`-prefixed groups predate the
+`conversations.*` API unification and may still appear) and is
+what every other method takes as the `channel=` parameter. The
+`name` is the human-readable handle in the UI.
 
 Pagination is cursor-based via `response_metadata.next_cursor`.
 If the result has `next_cursor != ""`, pass it back as
