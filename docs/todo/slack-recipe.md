@@ -1,27 +1,60 @@
-**Status**: spec draft; recipe body not yet written. Open questions
-below need operator answers before the recipe lands.
+**Status**: spec drafted; recipe body landed; pivoted from user-token
+to bot-token model after first review. Open questions below.
 
 ## Resolutions
 
-- Token type: **user OAuth token** (`xoxp-...`). The coordinator's
-  read surface matches whatever the human user behind the token
-  can see (public channels, private channels they have joined,
-  DMs, group DMs). Bot tokens (`xoxb-...`) are out -- a bot only
-  sees channels it has been explicitly invited to, which would
-  drift out of sync with operator expectations as new channels
-  appear.
-- Scope: **read-only**. No `chat:write`, no `reactions:write`, no
-  admin / workspace-management surfaces. Matches the `jira` and
-  `sentry` recipes' posture.
+- Token type: **bot OAuth token** (`xoxb-...`). Pivoted from the
+  initial user-token (`xoxp-...`) draft after review. Rationale:
+  a bot only sees channels it has been explicitly invited to,
+  which gives a small auditable visibility set ("which channels
+  is the coordinator reading?" = "which channels has the bot
+  been invited to?"). A user token would inherit the human user's
+  full visibility (every private channel they are in, every DM),
+  which is much broader than the coordinator's actual need and
+  has a correspondingly larger blast radius if the token leaks.
+  This trade is the same shape as the `github` recipe choosing
+  fine-grained PATs over classic PATs for per-repo scoping.
+- Scope: **read-only**. No `chat:write`, no `reactions:write`,
+  no admin / workspace-management surfaces. Matches the `jira`
+  and `sentry` recipes' posture.
 - Token placement: **layered, same as `GH_TOKEN` /
   `SENTRY_AUTH_TOKEN`**. Default in `~/.config/spore/secrets.env`
   so every coordinator on the host can read the workspace; allow
   per-project override at `~/.config/spore/<project>/secrets.env`
   where a project needs a different identity (e.g. a token minted
-  in a different workspace).
+  for a different workspace).
 - Recipe shape: **one combined `slack` recipe**. Channel reads,
-  thread reads, search, and user lookup all share the same auth
-  setup and fit comfortably under ~200 lines.
+  thread reads, user lookup, and the visibility audit all share
+  the same auth setup.
+- Env var name: **`SLACK_BOT_TOKEN`**. Slack's own SDKs (Python
+  `slack_sdk`, Node `@slack/web-api`) consume this name silently
+  by default. The github recipe rejected `GITHUB_TOKEN` for a
+  similar reason but the trade-offs differ here: the Slack SDK
+  pickup is narrow (only `slack_sdk.WebClient()` invocations
+  pick it up), the token is bot-scoped and read-only so the
+  blast radius of an accidental import is small, and matching
+  Slack's convention keeps the recipe friendlier to any later
+  Python / Node tool an operator might add. Documented in the
+  recipe.
+
+## Capability changes vs. the user-token draft
+
+- **`search.messages` is dropped from the recipe.** Bot tokens
+  cannot use `search.messages` -- it returns
+  `not_allowed_token_type`. The "find a message" workflow now
+  uses `conversations.history` on a known channel and a `jq`
+  filter; the spec's earlier paid-workspace requirement no
+  longer applies.
+- **DM reads are dropped.** A bot can only see DMs sent directly
+  to the bot user, not arbitrary user-to-user DMs. The `im:*`
+  and `mpim:*` scopes are dropped from the minimum set; the
+  recipe mentions them as optional for the niche "bot as
+  operator inbox" use case.
+- **Channel access is per-channel-invite.** Every channel the
+  coordinator should read needs an `/invite @<bot-name>` from a
+  member. New section in the recipe walks the invite step and
+  shows how to audit the resulting visibility set with
+  `users.conversations`.
 
 
 
@@ -41,16 +74,13 @@ examples (same shape as `bootstrap/recipes/jira.md`,
 
 In-scope operations (v1):
 
-1. List channels the token's user is a member of (public + private).
-2. Read recent messages from a channel (`conversations.history`).
+1. Audit the bot's visibility: list channels the bot has been
+   invited to (`users.conversations`).
+2. Read recent messages from a joined channel (`conversations.history`).
 3. Read a thread by its parent message timestamp
    (`conversations.replies`).
-4. Search messages across the workspace by query
-   (`search.messages`).
-5. Resolve user IDs to display names / real names
+4. Resolve user IDs to display names / real names
    (`users.info`, `users.list`).
-6. Find or open a DM channel id for a user
-   (`conversations.open` with `users=`).
 
 Out of scope for v1:
 
@@ -58,19 +88,25 @@ Out of scope for v1:
   `reactions.add`, `pins.add`, file uploads. Possible v2;
   read-only first matches the `jira` / `sentry` posture and keeps
   the token's blast radius small.
+- `search.messages`. Bot tokens cannot use the search method
+  (`not_allowed_token_type`). The find-a-message workflow uses
+  `conversations.history` + a `jq` filter on a known channel.
+- DM reads (`im:*`) and group DM reads (`mpim:*`). A bot can only
+  see DMs sent directly to it. Out of scope for this recipe;
+  scopes are easy to add later for the niche "bot as operator
+  inbox" pattern.
 - Workspace / org admin surfaces (`admin.*` methods): user
   provisioning, channel admin, workspace settings, retention,
   enterprise grid management. These need an Enterprise Grid
   workspace plus admin scopes and are intentionally not part of
   this recipe.
-- Slack Connect external-workspace surfaces beyond what the user
-  token naturally sees.
+- Slack Connect external-workspace surfaces.
 - Webhooks, slash commands, interactive components, Socket Mode,
   Events API. These are write / push paths, not the read loop.
 - File content download. File metadata via `files.list` /
-  `files.info` is in-scope as a side effect of message reads; the
-  recipe will mention the `url_private` field but not encode a
-  download wrapper.
+  `files.info` is out of scope for v1; the recipe will mention
+  the `url_private` field on inline message file attachments but
+  not encode a download wrapper.
 
 ## Deliverables
 
@@ -98,47 +134,26 @@ prints the new body there too. Identical to how `jira` and
 
 ## Open design questions
 
-**Q1. Token env var name: `SLACK_USER_TOKEN`, `SLACK_TOKEN`, or
-`SLACK_API_TOKEN`?**
+**Q1. Bot display name.**
 
-Recommendation: **`SLACK_USER_TOKEN`**. Three reasons:
+The manifest defaults the bot user's display name to
+`spore-coordinator`. On a host running multiple spore projects
+against the same workspace, the display name appears once per
+install regardless of how many projects use the token; on a
+deployment with multiple spore hosts all installing the same app
+to the same workspace, each install needs a distinct app name
+(Slack does not allow two installs of the same app in one
+workspace anyway, but distinct app names help the audit log
+distinguish them).
 
-- Slack's own SDKs (`slack_sdk`, `@slack/web-api`) silently pick
-  up `SLACK_BOT_TOKEN` or `SLACK_TOKEN` as defaults in some
-  versions. Using a name those SDKs do not consume means a
-  package we add later cannot accidentally inherit the token.
-- The `_USER_` infix encodes which kind of token this is. Bot vs
-  user vs app tokens look superficially similar (`xox?-`) but
-  carry very different scope semantics; the env name should not
-  paper over that.
-- Matches the `GH_TOKEN` vs `GITHUB_TOKEN` reasoning in the
-  `github` recipe -- pick the narrow name that tooling won't
-  blindly grab.
+Recommendation: **default name `spore-coordinator` in the
+manifest, recipe instructs the operator to suffix the hostname
+if installing on more than one host**. The 35-char app-name cap
+applies to both name and bot display name.
 
-Asking the operator only to confirm.
+**Q2. Workspace identifier env var: yes or no?**
 
-**Q2. `search.messages` requires a paid workspace.**
-
-Slack's `search.messages` method requires the workspace to be on
-a paid plan (Pro / Business+ / Enterprise Grid). Free workspaces
-return `{"ok": false, "error": "not_allowed_token_type"}` or
-similar.
-
-Recommendation: **document the requirement and keep search in
-v1**. The recipe will:
-
-- List the paid-plan dependency under "Auth gotcha".
-- Show `search.messages` in worked examples (assumes paid).
-- Show the fallback for free workspaces: walk
-  `conversations.history` on a known channel and filter
-  client-side via `jq`.
-
-Asking the operator to confirm the workspace plan so the recipe
-can state the right default.
-
-**Q3. Workspace identifier env var: yes or no?**
-
-The user token is workspace-scoped, so API calls do not need a
+The bot token is workspace-scoped, so API calls do not need a
 workspace slug. But operators often want to know "which workspace
 is this token pointing at?" without hitting the API.
 
@@ -147,24 +162,7 @@ call (`auth.test`) returns the workspace name + URL on every
 invocation, which is the source of truth. Adding a `SLACK_WORKSPACE`
 variable would either duplicate that or risk diverging from it.
 
-**Q4. Token install path: workspace-installed app or already-minted
-token?**
-
-A user token (`xoxp-...`) is issued by installing a Slack app to
-the workspace with user scopes. Two ways to get one:
-
-- (a) Create a new Slack app at `https://api.slack.com/apps`,
-  declare user scopes, install to the workspace, copy the "User
-  OAuth Token" from the OAuth & Permissions page.
-- (b) If the operator already has a personal Slack app for
-  another tool (e.g. a CLI like `slack-cli`), reuse it -- add
-  the read scopes this recipe needs and reinstall.
-
-Recommendation: **document (a) as the default, mention (b) as a
-reuse path**. New app keeps audit logs clean; reuse keeps the app
-list short. Operator choice.
-
-**Q5. App install approval.**
+**Q3. App install approval.**
 
 Slack workspaces can require admin approval for app installs. If
 the workspace has that policy on, the operator submits the app
@@ -175,67 +173,97 @@ Recommendation: **document the approval flow as a note**, with
 the click path for an admin to approve from the workspace
 settings. Nothing the recipe can do client-side.
 
+**Q4. Channel-invite hygiene.**
+
+The bot only sees channels it has been `/invite`'d to. Operator
+workflow: when an operator wants the coordinator to follow a new
+channel, they run `/invite @spore-coordinator` in that channel.
+Removing the bot from a channel is the reverse: `/remove
+@spore-coordinator`.
+
+Recommendation: **document both, plus the visibility audit
+example**. The visibility audit (`users.conversations` filtered)
+is the source of truth for "what does the coordinator see right
+now?" -- the recipe shows it as the first worked example after
+verify-auth.
+
 ## Recipe outline (for the writeup)
 
 Following the `jira.md` / `github.md` / `sentry.md` shape:
 
 1. **Header** -- one paragraph stating read-only scope, the
-   user-token-vs-bot-token reasoning, and the explicit "no writes,
-   no admin, no webhooks" exclusions.
-2. **Requirements** -- `SLACK_USER_TOKEN` in the layered vault
-   (global default + per-project override). Pointer to the memory
-   entry.
-3. **Mint the token** -- click path on
-   `https://api.slack.com/apps`: create app, add user scopes
-   (full set listed), install to workspace, copy the User OAuth
-   Token. Admin-approval note if the workspace requires it.
-4. **Auth gotcha** -- four points:
-   - Token prefix decoder: `xoxb-` (bot), `xoxp-` (user), `xapp-`
-     (app-level), `xoxe.xoxp-` (refresh). This recipe uses
-     `xoxp-` and rejects the others.
+   bot-token-vs-user-token reasoning, the explicit "no writes,
+   no admin, no DMs, no search" exclusions, and the per-channel
+   invite requirement.
+2. **Requirements** -- `SLACK_BOT_TOKEN` in the layered vault
+   (global default + per-project override). Pointer to the
+   memory entry.
+3. **Mint the token** -- two paths:
+   - "Faster path: from a manifest" with the YAML manifest body
+     (bot scopes, `features.bot_user`, no socket-mode / event
+     subscriptions / token rotation).
+   - "Manual path: from scratch" walking the equivalent click
+     path through "OAuth & Permissions" -> Bot Token Scopes ->
+     Install to Workspace -> copy "Bot User OAuth Token".
+
+   Admin-approval note if the workspace requires it.
+4. **Invite the bot to channels** -- the `/invite @<bot-name>`
+   step the operator runs in each channel the coordinator should
+   read. Note that this is the granular permission grant; the
+   token's scope set is the *upper bound* of what the bot CAN
+   read once invited.
+5. **Auth gotcha** -- four points:
+   - Token prefix decoder: `xoxb-` (bot, this recipe), `xoxp-`
+     (user), `xapp-` (app-level), `xoxe.xoxp-` (refresh). This
+     recipe uses `xoxb-` and rejects the others.
    - Slack API returns HTTP 200 on logical errors; always check
      `.ok` in the JSON, not the HTTP code. A token failure looks
      like `{"ok": false, "error": "invalid_auth"}` with HTTP 200.
-   - Use `Authorization: Bearer $SLACK_USER_TOKEN`, not the
+   - Use `Authorization: Bearer $SLACK_BOT_TOKEN`, not the
      deprecated `?token=` query string (leaks via access logs).
-   - `search.messages` requires a paid workspace.
-5. **Worked examples**:
-   - Verify auth (`auth.test`) -- returns workspace name, user
-     id, user name; the canonical sanity check.
-   - List channels the user is in (`users.conversations` filtered
-     by `types=public_channel,private_channel`).
+   - `not_in_channel` -- the bot has not been invited to the
+     channel yet. Run `/invite @<bot-name>` in the channel and
+     retry.
+6. **Worked examples**:
+   - Verify auth (`auth.test`) -- returns workspace name, bot
+     user id, bot user name.
+   - **Visibility audit**: list every channel the bot is in
+     (`users.conversations` filtered by `types=public_channel,private_channel`,
+     `exclude_archived=true`). The source of truth for "what
+     does the coordinator read?".
    - Read recent messages from a channel
      (`conversations.history` with `channel=`, `limit=20`).
    - Read a thread (`conversations.replies` with `channel=`,
      `ts=<parent-ts>`).
-   - Search messages by query (`search.messages` with
-     `query="from:@alice has:link"`). Note the paid-plan
-     requirement.
    - Resolve a user id to display name (`users.info` with
      `user=Uxxxxx`).
-   - Open / find a DM channel id for a user
-     (`conversations.open` with `users=Uxxxxx`).
-6. **Scope reference** -- minimum scopes for the read loop:
-   - `channels:read` -- list public channels.
-   - `channels:history` -- read public channel messages.
-   - `groups:read` -- list private channels.
-   - `groups:history` -- read private channel messages.
-   - `im:read` -- list DMs.
-   - `im:history` -- read DM messages.
-   - `mpim:read` -- list group DMs.
-   - `mpim:history` -- read group DM messages.
+   - Find a message by query in a known channel
+     (`conversations.history` + `jq` filter). Notes that
+     `search.messages` is unavailable for bot tokens; this is
+     the fallback.
+7. **Scope reference** -- minimum bot scopes for the read loop:
+   - `channels:read` -- list public channels the bot can see.
+   - `channels:history` -- read public channel messages (joined
+     channels only).
+   - `groups:read` -- list private channels the bot is in.
+   - `groups:history` -- read private channel messages (joined
+     only).
    - `users:read` -- resolve user ids.
-   - `search:read` -- run `search.messages` (paid workspaces only).
 
    Optional, narrow uses:
-   - `users:read.email` -- email addresses on user lookup. Off by
-     default; only enable if a workflow needs to cross-reference
-     with another system by email.
-   - `files:read` -- file metadata via `files.list` / `files.info`.
-     Out of scope for v1 but cheap to add if needed.
-7. **Hygiene** -- never echo `$SLACK_USER_TOKEN`; rotation
+   - `users:read.email` -- email addresses on user lookup. Off
+     by default; only enable if a workflow needs to
+     cross-reference with another system by email.
+   - `im:read` / `im:history` / `mpim:read` / `mpim:history` --
+     enable only for the "bot as operator inbox" pattern (the
+     operator DMs the bot; the coordinator reads). Off by
+     default.
+   - `files:read` -- file metadata via `files.list` /
+     `files.info`. Out of scope for v1.
+8. **Hygiene** -- never echo `$SLACK_BOT_TOKEN`; rotation
    cadence; revocation URL (the app's OAuth & Permissions page,
-   "Revoke Tokens").
+   "Revoke Tokens"); how to fully uninstall the app to revoke
+   the token.
 
 ## Validation plan
 
@@ -254,10 +282,14 @@ Following the `jira.md` / `github.md` / `sentry.md` shape:
 
 - Decide which workspace the recipe targets (one workspace per
   token; multi-workspace pulls take multiple tokens).
-- Create the Slack app, declare the user scopes listed above,
-  install to the workspace, copy the User OAuth Token.
+- Create the Slack app from the recipe's YAML manifest, install
+  to the workspace, copy the Bot User OAuth Token.
 - Drop into `~/.config/spore/secrets.env` as
-  `SLACK_USER_TOKEN=xoxp-...`. Per-project override only if a
+  `SLACK_BOT_TOKEN=xoxb-...`. Per-project override only if a
   project needs to target a different workspace.
 - Approve the app install if workspace policy requires admin
   approval.
+- `/invite @spore-coordinator` (or whatever the bot was named at
+  manifest time) in each channel the coordinator should read.
+  Re-audit any time via the `users.conversations` worked
+  example.
