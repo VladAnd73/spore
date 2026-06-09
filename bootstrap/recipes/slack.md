@@ -55,6 +55,70 @@ rather than reusing one minted for another tool -- a dedicated
 app keeps the audit log clean and lets you revoke this token
 without breaking the other tool.
 
+### Faster path: from a manifest
+
+Slack's "From a manifest" install path takes a YAML blob and
+preconfigures the app's name, description, and scope set in one
+paste. Use this in preference to the per-scope click path below.
+
+1. Open `https://api.slack.com/apps` and pick "Create New App" ->
+   "From a manifest". Select the target workspace.
+2. Switch the manifest format to **YAML** and paste:
+
+   ```yaml
+   display_information:
+     name: spore-coordinator-readonly
+     description: Read-only workspace access for a spore coordinator.
+     long_description: >-
+       Issues a user OAuth token (xoxp-) with read-only scopes so a
+       spore coordinator or worker can list channels, read messages,
+       walk threads, search, and resolve user ids via the Slack Web
+       API. No write scopes, no admin scopes, no bot user, no event
+       subscriptions, no Socket Mode. See bootstrap/recipes/slack.md
+       in the spore repo for the recipe this app pairs with.
+   oauth_config:
+     scopes:
+       user:
+         - channels:read
+         - channels:history
+         - groups:read
+         - groups:history
+         - im:read
+         - im:history
+         - mpim:read
+         - mpim:history
+         - users:read
+         - search:read
+   settings:
+     org_deploy_enabled: false
+     socket_mode_enabled: false
+     token_rotation_enabled: false
+   ```
+
+   Edit `display_information.name` if you want the app named per
+   host (`spore-coordinator-<hostname>-readonly`) so the audit log
+   distinguishes installs from multiple spore hosts. The 35-char
+   cap on app names applies.
+
+3. Review, then "Create". Slack lands you on the new app's page.
+4. Open "OAuth & Permissions" in the left nav, scroll to "OAuth
+   Tokens for Your Workspace", click "Install to Workspace". If
+   the workspace requires admin approval for app installs, this
+   submits a request -- a workspace admin approves from "Settings
+   & administration" -> "Manage apps" -> "Approval queue" before
+   the token mints.
+5. Once installed, copy the "User OAuth Token" -- it starts with
+   `xoxp-`. The "Bot User OAuth Token" (`xoxb-`) is not minted by
+   this manifest (no bot scopes); if you see one anyway it is not
+   what this recipe uses.
+6. Drop into the chosen secrets file as
+   `SLACK_USER_TOKEN=xoxp-...`.
+
+### Manual path: from scratch
+
+Equivalent to the manifest path, useful when you want to read
+every screen before committing.
+
 1. Open `https://api.slack.com/apps` and pick "Create New App" ->
    "From scratch". Name it after the host and purpose
    (`spore-coordinator-<hostname>-readonly`); pick the target
