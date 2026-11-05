@@ -1,5 +1,6 @@
-**Status**: design locked 2026-11-05, pending implementation (target
-v0.29.0).
+**Status**: implemented in v0.29.0 (`internal/ghapp`,
+`internal/fleet/rolegithub.go`, `docs/github-app.md`); live
+verification against a real app pending the org owner creating it.
 
 # github-app-pr-flow: role loop on a visible draft PR
 

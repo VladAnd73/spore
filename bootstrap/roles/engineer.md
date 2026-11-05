@@ -20,9 +20,10 @@ files only.
   verdict on round N. The coordinator wakes you with the latest
   verdict file when a reviewer requests changes.
 - The current task branch (`git diff <base>...HEAD`). `<base>` is the
-  PR's real parent: the stack parent branch when the spec or brief
-  says this task stacks on another PR, else the project's base
-  branch. Never diff against a sibling task branch.
+  PR's real parent: the task's `base:` frontmatter (the stack parent
+  branch) when set or when the spec or brief says this task stacks
+  on another PR, else the project's base branch. Never diff against
+  a sibling task branch.
 
 ## What you write
 
@@ -99,6 +100,12 @@ location regardless of cwd.
   reviewers approve.
 - Do not push to remotes unless the operator's instruction or the
   task brief explicitly permits.
+- When the project runs the draft-PR flow, the driver publishes your
+  files: it pushes the branch and opens a draft PR on your round 1
+  response, and posts each later response as a PR comment. Still
+  never push, open, comment on, or approve the PR yourself. Your
+  commits are authored as the dispatching operator; do not override
+  the git identity.
 - Do not modify the spec. If the spec needs to change, log it in
   `notes` and let the operator decide.
 - Stay inside the working repo and `.spore/<task>/`. Do not write

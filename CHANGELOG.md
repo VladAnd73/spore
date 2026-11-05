@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Role loop on a visible draft PR (`docs/github-app.md`). With
+  `pr_flow = "draft"` in the new host-side
+  `$XDG_STATE_HOME/spore/<project>/github.toml` (0600), `DriveRoleLoop`
+  mirrors the loop to GitHub as a per-org GitHub App: engineer round 1
+  pushes the branch and opens a draft PR (base: new optional task
+  frontmatter `base:`, else the remote default branch) assigned to
+  `operator_login`; each verdict becomes a `COMMENT` review headed
+  `Review #1` / `Review #2`; later engineer responses become PR
+  comments; `PhaseDone` marks the PR ready and the coordinator notice
+  becomes `<slug>: done, PR #N ready for operator approval: <url>`;
+  an escalation adds one PR comment. Mirror state sits in
+  `.spore/<slug>/github.json`; GitHub errors never block the loop and
+  reach the coordinator once per distinct error. Engineer panes commit
+  as `commit_name` / `commit_email`. New `spore gh config [--set k=v]`,
+  `spore gh token` (installation token, cached 0600 until 5 min before
+  expiry), and `spore gh exec -- <cmd>` (GH_TOKEN plus a GIT_CONFIG_*
+  credential helper so gh and https git push act as the app; ssh
+  origins refused). Engineer, reviewer, and coordinator role text name
+  the flow and `base:`. Consumer impact: off by default and
+  byte-identical when off; no consumer repo change. Turning it on needs
+  an org-owned GitHub App and an https `origin`; the role and
+  coordinator text lands on the next `spore install` / coordinator
+  respawn.
+
 - `spore coordinator state ls` / `state archive <id>... --slug NAME`
   keep `state.md` under the 8KB SessionStart budget. `ls` lists `## `
   sections and, inside them, `### ` subsections and bold-lead

@@ -89,9 +89,10 @@ responses to read.
 
 ## The base
 
-`<base>` is the PR's real parent: the stack parent branch when the
-spec or brief says this task stacks on another PR, else the
-project's base branch. Never measure against a sibling task branch.
+`<base>` is the PR's real parent: the task's `base:` frontmatter
+(the stack parent branch) when set or when the spec or brief says
+this task stacks on another PR, else the project's base branch.
+Never measure against a sibling task branch.
 
 ## PR size
 
@@ -149,6 +150,12 @@ regardless of cwd.
 - Do not open, merge, or approve the PR. The operator does that
   after both reviewer phases clear.
 - Do not push to remotes.
+- When the project runs the draft-PR flow, the driver posts your
+  verdict on the PR as a comment review headed `Review #1` (A) or
+  `Review #2` (B). Still never comment on or approve the PR
+  yourself, and never read the PR thread (it holds the other
+  instance's reviews). Your summary and comments are public to the
+  team: write them for a reader who has not seen the spec.
 - Stay inside the working repo and `.spore/<task>/`. Do not write
   elsewhere on the host.
 - Instance B: never read A's reviews. On round 1, also do not read
