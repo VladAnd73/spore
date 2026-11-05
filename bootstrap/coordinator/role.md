@@ -60,7 +60,8 @@ You do not just observe. You drive the queue.
   `github mirror failed` notice names a GitHub-side error the
   driver retries every tick; surface it once. With the flow on, the
   brief's first prose paragraph becomes the public PR body: write it
-  as a plain summary, free of host paths and coordinator-only notes.
+  as a plain summary, free of host paths and coordinator-only notes
+  (a paragraph naming an absolute path is replaced by the title).
 - `spore coordinator swap --to claude|codex [--model m]` respawns
   this pane under another driver. From inside the pane, flush
   `state.md` first, then pass `--no-wrap`; the command dies with

@@ -27,16 +27,23 @@ posts only what is missing, in loop order. A GitHub failure never
 blocks the loop: it logs to stderr, retries next tick, and tells the
 coordinator once per distinct error (`<slug>: github mirror failed,
 retrying each tick: ...`); a git/gh error counts as the same error
-when only its stderr differs. Every git/gh call and the token mint is
-capped at 60 seconds, with git and gh prompts disabled, so a hung
-connection delays a tick by about a minute at most. Deleting `github.json` re-posts every
+when only its stderr differs. If the loop reaches done while the
+mirror is failing, the coordinator also gets the plain `<slug>: done`
+once. Every git/gh call and the token mint is capped at 60 seconds,
+with git and gh prompts disabled, so a hung connection delays a tick
+by about a minute at most. Deleting `github.json` re-posts every
 comment; an open PR for the branch is adopted, not duplicated.
+
+Every gh call runs with `GH_REPO` set from `origin`'s URL, so gh and
+`git push` always target the same repo; without it gh prefers an
+`upstream` remote in a fork-style clone.
 
 The PR body is the first prose paragraph of `.spore/<slug>/spec.md`
 (the task brief, skipping headings and the `**Status**` line) plus a
-fixed footer. Everyone with repo access reads it, so open the brief
-with a plain summary: no host paths, no coordinator-only notes. The
-rest of the brief stays off GitHub.
+fixed footer; a paragraph naming an absolute path (`/...` or `~/...`)
+is replaced by the task title. Everyone with repo access reads it, so
+open the brief with a plain summary: no host paths, no
+coordinator-only notes. The rest of the brief stays off GitHub.
 
 The PR base is the task's `base:` frontmatter (a stack parent branch),
 else the remote default branch (`git symbolic-ref
@@ -104,11 +111,12 @@ flow was turned on keep their old identity until respawned.
   minutes before expiry; changing `app_id` or `installation_id`
   invalidates the cache.
 - `spore gh exec -- <cmd...>` runs a command as the app: `GH_TOKEN`
-  and `GH_ENTERPRISE_TOKEN` are set and a git credential helper (username `x-access-token`, password
-  from `$GH_TOKEN`) is injected through `GIT_CONFIG_COUNT` /
-  `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`, after an empty
-  `credential.helper` that clears your own helpers. Both `gh` and
-  `git push` over https then act as the app.
+  and `GH_ENTERPRISE_TOKEN` are set, and a git credential helper
+  (username `x-access-token`, password from `$GH_TOKEN`) is injected
+  through `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` /
+  `GIT_CONFIG_VALUE_n`, after an empty `credential.helper` that
+  clears your own helpers. Both `gh` and `git push` over https then
+  act as the app.
 
 ## Limits (v1)
 

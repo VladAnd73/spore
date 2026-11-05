@@ -4,29 +4,33 @@
 
 - Role loop on a visible draft PR (`docs/github-app.md`). With
   `pr_flow = "draft"` in the new host-side
-  `$XDG_STATE_HOME/spore/<project>/github.toml` (0600), `DriveRoleLoop`
-  mirrors the loop to GitHub as a per-org GitHub App: engineer round 1
-  pushes the branch and opens a draft PR (base: new optional task
-  frontmatter `base:`, else the remote default branch) assigned to
-  `operator_login`; each verdict becomes a `COMMENT` review headed
-  `Review #1` / `Review #2`; later engineer responses become PR
-  comments; `PhaseDone` marks the PR ready and the coordinator notice
-  becomes `<slug>: done, PR #N ready for operator approval: <url>`;
-  an escalation adds one PR comment. Mirror state sits in
-  `.spore/<slug>/github.json`; GitHub errors never block the loop
-  (every git/gh call and the token mint is capped at 60s, prompts
-  off) and reach the coordinator once per distinct error. The PR body
-  is the brief's first prose paragraph only. Engineer panes commit
-  as `commit_name` / `commit_email`. New `spore gh config [--set k=v]`,
-  `spore gh token` (installation token, cached 0600 until 5 min before
-  expiry), and `spore gh exec -- <cmd>` (GH_TOKEN and
-  GH_ENTERPRISE_TOKEN plus a GIT_CONFIG_* credential helper so gh and https git push act as the app; ssh
-  origins refused). Engineer, reviewer, and coordinator role text name
-  the flow and `base:`. Consumer impact: off by default and
-  byte-identical when off; no consumer repo change. Turning it on needs
-  an org-owned GitHub App and an https `origin`; the role and
-  coordinator text lands on the next `spore install` / coordinator
-  respawn.
+  `$XDG_STATE_HOME/spore/<project>/github.toml` (0600),
+  `DriveRoleLoop` mirrors the loop to GitHub as a per-org GitHub App:
+  engineer round 1 pushes the branch and opens a draft PR (base: new
+  optional task frontmatter `base:`, else the remote default branch)
+  assigned to `operator_login`; each verdict becomes a `COMMENT`
+  review headed `Review #1` / `Review #2`; later engineer responses
+  become PR comments; `PhaseDone` marks the PR ready and the
+  coordinator notice becomes `<slug>: done, PR #N ready for operator
+  approval: <url>`; an escalation adds one PR comment. Mirror state
+  sits in `.spore/<slug>/github.json`; GitHub errors never block the
+  loop (every git/gh call and the token mint is capped at 60s, prompts
+  off) and reach the coordinator once per distinct error; a loop that
+  finishes while the mirror fails still sends the plain
+  `<slug>: done`. gh is pinned to `origin` via `GH_REPO`. The PR body
+  is the brief's first prose paragraph only, or the task title when
+  that paragraph names an absolute path. Coordinator inbox notices
+  from one process in the same millisecond no longer overwrite each
+  other. Engineer panes commit as `commit_name` / `commit_email`. New
+  `spore gh config [--set k=v]`, `spore gh token` (installation token,
+  cached 0600 until 5 min before expiry), and `spore gh exec -- <cmd>`
+  (GH_TOKEN and GH_ENTERPRISE_TOKEN plus a GIT_CONFIG_* credential
+  helper so gh and https git push act as the app; ssh origins
+  refused). Engineer, reviewer, and coordinator role text name the
+  flow and `base:`. Consumer impact: off by default and byte-identical
+  when off; no consumer repo change. Turning it on needs an org-owned
+  GitHub App and an https `origin`; the role and coordinator text
+  lands on the next `spore install` / coordinator respawn.
 
 - `spore coordinator state ls` / `state archive <id>... --slug NAME`
   keep `state.md` under the 8KB SessionStart budget. `ls` lists `## `

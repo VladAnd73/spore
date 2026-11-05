@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -35,7 +36,10 @@ type githubState struct {
 	PushedSHA string   `json:"pushed_sha,omitempty"`
 	Posted    []string `json:"posted,omitempty"`
 	Ready     bool     `json:"ready,omitempty"`
-	LastError string   `json:"last_error,omitempty"`
+	// DoneNotified records the plain "<slug>: done" fallback sent while
+	// the mirror was failing at PhaseDone.
+	DoneNotified bool   `json:"done_notified,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
 }
 
 func (s *githubState) posted(name string) bool {
@@ -165,6 +169,13 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
 			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: github mirror failed, retrying each tick: %v", slug, err))
 			m.save()
 		}
+		// The mirror owns the done notice; while it is failing the
+		// coordinator still learns once that the loop itself finished.
+		if snap.Phase == PhaseDone && !m.state.DoneNotified {
+			m.state.DoneNotified = true
+			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: done", slug))
+			m.save()
+		}
 		return
 	}
 	if m.state.LastError != "" {
@@ -242,6 +253,15 @@ func (m *githubMirror) run(snap Snapshot) error {
 		return err
 	}
 	m.env = append(ghapp.Env(os.Environ(), tok.Token), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
+	remote, err := m.git("config", "--get", "remote.origin.url")
+	if err != nil {
+		return fmt.Errorf("no origin remote: %w", err)
+	}
+	repo, err := ghapp.GHRepo(remote)
+	if err != nil {
+		return err
+	}
+	m.env = append(m.env, "GH_REPO="+repo)
 	for _, e := range pending {
 		if err := m.apply(e); err != nil {
 			return fmt.Errorf("%s: %w", e.name, err)
@@ -340,13 +360,6 @@ func (m *githubMirror) push() error {
 	if err != nil {
 		return err
 	}
-	remote, err := m.git("config", "--get", "remote.origin.url")
-	if err != nil {
-		return fmt.Errorf("no origin remote: %w", err)
-	}
-	if err := ghapp.CheckHTTPSRemote(remote); err != nil {
-		return err
-	}
 	ref := "refs/heads/" + branch
 	args := []string{"push", "--quiet", "origin", "HEAD:" + ref}
 	if prev := m.state.PushedSHA; prev != "" {
@@ -412,7 +425,7 @@ func (m *githubMirror) ensurePR() error {
 	if title == "" {
 		title = m.slug
 	}
-	out, err = m.gh(m.prBody(), "pr", "create", "--draft", "--base", base, "--head", branch,
+	out, err = m.gh(m.prBody(title), "pr", "create", "--draft", "--base", base, "--head", branch,
 		"--title", title, "--body-file", "-", "--assignee", m.cfg.OperatorLogin)
 	if err != nil {
 		return err
@@ -427,19 +440,21 @@ func (m *githubMirror) ensurePR() error {
 	return nil
 }
 
-// prBody is the spec's summary paragraph plus a fixed footer. The rest
-// of spec.md (the coordinator's brief) stays off the PR: it can carry
-// host paths and coordinator-only instructions.
-func (m *githubMirror) prBody() string {
+// prBody is the brief's summary paragraph plus a fixed footer. The rest
+// of spec.md stays off the PR: briefs carry host paths and
+// coordinator-only notes. A summary naming an absolute path falls back
+// to the task title.
+func (m *githubMirror) prBody(title string) string {
 	spec, _ := os.ReadFile(filepath.Join(task.RoleTaskDir(m.projectRoot, m.slug), "spec.md"))
-	var b strings.Builder
-	if s := specSummary(string(spec)); s != "" {
-		b.WriteString(s + "\n\n")
+	summary := specSummary(string(spec))
+	if summary == "" || absPathRE.MatchString(summary) {
+		summary = title
 	}
-	fmt.Fprintf(&b, "Dispatched by @%s. Opened by spore's role loop: reviews arrive as `Review #1` / `Review #2` comments, and the PR leaves draft when both reviewers approve. @%s gives the only approval and merges.\n",
-		m.cfg.OperatorLogin, m.cfg.OperatorLogin)
-	return b.String()
+	return fmt.Sprintf("%s\n\nDispatched by @%s. Opened by spore's role loop: reviews arrive as `Review #1` / `Review #2` comments, and the PR leaves draft when both reviewers approve. @%s gives the only approval and merges.\n",
+		summary, m.cfg.OperatorLogin, m.cfg.OperatorLogin)
 }
+
+var absPathRE = regexp.MustCompile("(^|[\\s(`'\"])~?/[^\\s/]+/")
 
 // specSummary returns the spec's first prose paragraph, skipping
 // headings and the **Status** line.

@@ -22,7 +22,7 @@ import (
 
 const fakeGH = `#!/bin/sh
 log="$FAKE_GH_LOG"
-{ printf 'ARGS:'; for a in "$@"; do printf ' %s' "$a"; done; printf '\nTOKEN: %s\n' "$GH_TOKEN"; } >> "$log"
+{ printf 'ARGS:'; for a in "$@"; do printf ' %s' "$a"; done; printf '\nTOKEN: %s\nREPO: %s\n' "$GH_TOKEN" "$GH_REPO"; } >> "$log"
 for a in "$@"; do
   if [ "$a" = "--body-file" ]; then printf 'BODY:\n' >> "$log"; cat >> "$log"; printf 'END\n' >> "$log"; fi
 done
@@ -393,6 +393,90 @@ func TestGitHubMirrorRejectsSSHRemote(t *testing.T) {
 	}
 	if c := f.calls(t); c != nil {
 		t.Fatalf("gh ran with an ssh remote: %v", c)
+	}
+}
+
+// TestGitHubMirrorPinsGHToOrigin: with an `upstream` remote present gh
+// would pick it over origin; GH_REPO keeps every call on origin.
+func TestGitHubMirrorPinsGHToOrigin(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	runGit(t, f.root, "remote", "add", "upstream", "https://github.com/canon/widget.git")
+	writeEng(1)(t, f.root, f.slug)
+	mustWriteReview(t, f.root, f.slug, task.ReviewerA, 1, task.Review{Verdict: task.VerdictApprove, Summary: "ok"})
+	f.tick(t)
+	var repos []string
+	for _, line := range strings.Split(f.log(t), "\n") {
+		if r, ok := strings.CutPrefix(line, "REPO: "); ok {
+			repos = append(repos, r)
+		}
+	}
+	if len(repos) < 3 {
+		t.Fatalf("gh calls = %v", f.calls(t))
+	}
+	for _, r := range repos {
+		if r != "github.com/acme/widget" {
+			t.Fatalf("GH_REPO = %q, want origin; all = %v", r, repos)
+		}
+	}
+}
+
+// TestGitHubMirrorDoneNoticeWhileFailing: a mirror failing at PhaseDone
+// still tells the coordinator once that the loop finished.
+func TestGitHubMirrorDoneNoticeWhileFailing(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	writeEng(1)(t, f.root, f.slug)
+	mustWriteReview(t, f.root, f.slug, task.ReviewerA, 1, task.Review{Verdict: task.VerdictApprove, Summary: "ok"})
+	mustWriteReview(t, f.root, f.slug, task.ReviewerB, 1, task.Review{Verdict: task.VerdictApprove, Summary: "ok"})
+	if err := os.WriteFile(f.failFile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	f.tick(t)
+	var bodies []string
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		bodies = append(bodies, e.Body)
+	}
+	if len(bodies) != 2 || !strings.Contains(bodies[0], "github mirror failed") || bodies[1] != "demo: done" {
+		t.Fatalf("notices = %q", bodies)
+	}
+	if err := os.Remove(f.failFile); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	envs := readInboxEnvelopes(t, f.inbox)
+	if len(envs) != 3 || !strings.HasPrefix(envs[2].Body, "demo: done, PR #12 ready") {
+		t.Fatalf("after recovery envelopes = %+v", envs)
+	}
+}
+
+// TestGitHubMirrorPRBodyDropsPaths: a summary naming a host path falls
+// back to the task title.
+func TestGitHubMirrorPRBodyDropsPaths(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	if err := task.WriteSpec(f.root, f.slug, []byte("Implement it. Copy the spec from /srv/main/docs/todo/x.md first.\n")); err != nil {
+		t.Fatal(err)
+	}
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	log := f.log(t)
+	if strings.Contains(log, "/srv/main") || !strings.Contains(log, "BODY:\nDemo widget\n") {
+		t.Fatalf("gh log:\n%s", log)
+	}
+}
+
+func TestAbsPathRE(t *testing.T) {
+	for in, want := range map[string]bool{
+		"see /home/u/x":                 true,
+		"key at ~/.config/spore/a.pem":  true,
+		"(`/etc/nixos/flake.nix`)":      true,
+		"/srv/a/b at the start":         true,
+		"Make the widget spin.":         false,
+		"see https://github.com/a/b":    false,
+		"read and/or write the a/b key": false,
+	} {
+		if got := absPathRE.MatchString(in); got != want {
+			t.Errorf("absPathRE(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
