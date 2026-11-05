@@ -314,6 +314,8 @@ func TestGitHubMirrorTimeout(t *testing.T) {
 	mirrorCallTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { mirrorCallTimeout = old })
 	writeEng(1)(t, f.root, f.slug)
+	mustWriteReview(t, f.root, f.slug, task.ReviewerA, 1, task.Review{Verdict: task.VerdictApprove, Summary: "ok"})
+	mustWriteReview(t, f.root, f.slug, task.ReviewerB, 1, task.Review{Verdict: task.VerdictApprove, Summary: "ok"})
 	if err := os.WriteFile(f.failFile+".sleep", nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -324,9 +326,14 @@ func TestGitHubMirrorTimeout(t *testing.T) {
 	if d := time.Since(start); d > 10*time.Second {
 		t.Fatalf("DriveRoleLoop took %s", d)
 	}
-	envs := readInboxEnvelopes(t, f.inbox)
-	if len(envs) != 1 || !strings.Contains(envs[0].Body, "timed out") {
-		t.Fatalf("envelopes = %+v", envs)
+	var timedOut int
+	for _, e := range readInboxEnvelopes(t, f.inbox) {
+		if strings.Contains(e.Body, "github mirror failed") && strings.Contains(e.Body, "timed out") {
+			timedOut++
+		}
+	}
+	if timedOut != 1 {
+		t.Fatalf("timeout notices = %d, envelopes = %+v", timedOut, readInboxEnvelopes(t, f.inbox))
 	}
 	if s := f.state(t); !strings.Contains(s.LastError, "timed out") || len(s.Posted) != 0 {
 		t.Fatalf("state = %+v", s)
