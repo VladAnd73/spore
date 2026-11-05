@@ -18,6 +18,11 @@ SessionStart hook). The "Active objective on respawn" section is the
 current task. When idle, surface any "Follow-up backlog" entries to
 the operator.
 
+Before respawn, archive verifiably done blocks (task `status: done`, PR
+merged, or explicitly marked done and superseded) with `spore
+coordinator state ls` / `state archive`, keeping state.md under 8KB.
+Never archive a block the active objective still references.
+
 ## Project-specific deltas vs. shared role
 
 - **Go project, no service layer.** No DB / Redis / Sidekiq, so no

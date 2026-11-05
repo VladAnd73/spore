@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `spore coordinator state ls` / `state archive <id>... --slug NAME`
+  keep `state.md` under the 8KB SessionStart budget. `ls` lists `## `
+  sections and, inside them, `### ` subsections and bold-lead
+  paragraphs with ids and byte sizes. `archive` moves the selected
+  units verbatim to host-side
+  `$XDG_STATE_HOME/spore/<project>/coordinator/state-archive/<date>-<slug>.md`
+  and leaves one link line per archive under `## Archive` in
+  `state.md` (archive written and fsynced first, `state.md` replaced
+  atomically, refuses an existing archive file, `--dry-run`). The
+  `load-state-md.pl` SessionStart hook and the codex start context now
+  lead with a size warning when `state.md` exceeds 8KB. The shared
+  coordinator role gains a wrap-up step: archive verifiably done blocks
+  before respawn. Consumer impact: new subcommand, hook warning above
+  8KB, `role.md` wrap-up step; no consumer repo change.
+
 - Fleet workers and role-loop panes can run codex without touching the
   consumer repo. New host-side overlay
   `$XDG_STATE_HOME/spore/<project>/workers.toml` (0600) with the
