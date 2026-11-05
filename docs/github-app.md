@@ -56,6 +56,9 @@ commit; otherwise pushes are fast-forward only.
 
 ## One-time setup
 
+Org-owner path: create the app once per org. Teammates joining an
+existing app skip to [Teammate onboarding](#teammate-onboarding).
+
 1. Org owner: Settings -> Developer settings -> GitHub Apps -> New.
    Permissions: Contents read/write, Pull requests read/write,
    Metadata read. No webhook. One app per org, shared by every
@@ -63,8 +66,9 @@ commit; otherwise pushes are fast-forward only.
 2. Install it on the target repos. Note the app id (app settings
    page) and the installation id (the number at the end of the
    installation's settings URL).
-3. Generate a private key per teammate. Store it outside the repo,
-   mode 0600, e.g. `~/.config/spore/<project>/github-app.pem`.
+3. Generate a private key per teammate (see
+   [Teammate onboarding](#teammate-onboarding)). Store it outside the
+   repo, mode 0600, e.g. `~/.config/spore/<project>/github-app.pem`.
 4. Point the project's `origin` at https (an ssh remote is refused:
    it would push as your own key):
    `git remote set-url origin https://github.com/<owner>/<repo>.git`.
@@ -78,6 +82,50 @@ commit; otherwise pushes are fast-forward only.
      --set pr_flow=draft
    spore gh token
    ```
+
+## Teammate onboarding
+
+Per-teammate path: the org already has its app (today
+`marketer-spore`). You share that app and bring your own private key.
+Below, `<pem>` is `~/.config/spore/<project>/github-app.pem`.
+
+1. Generate a key: app settings -> "Private keys" -> "Generate a
+   private key". The browser downloads a `.pem`. This is a private
+   key, NOT a client secret; client secrets are for OAuth user login,
+   which spore does not use.
+2. On the spore host, create the secrets dir (it may not exist):
+   `install -d -m 0700 ~/.config/spore/<project>`.
+3. Get the `.pem` onto the host. Never paste the key into an agent
+   chat or run it through the `!` prefix.
+   - Paste (works over plain SSH, recommended). Copy the key on your
+     laptop: `pbcopy < key.pem` (Mac), `xclip -selection clipboard <
+     key.pem` or `wl-copy < key.pem` (Linux). In a fresh tmux window on
+     the host run `umask 077; cat > <pem>`, paste the full PEM (BEGIN
+     through END line), press Enter, then Ctrl-D, and close the window.
+     Clear the clipboard after.
+   - scp from the laptop:
+     `scp <file>.pem <user>@<host>:~/.config/spore/<project>/github-app.pem`.
+     Replace every placeholder fully: zsh reads a leftover `<` or `>`
+     as a redirection. If your ssh config auto-attaches tmux
+     (`RemoteCommand` / `RequestTTY`), non-interactive ssh fails with
+     "open terminal failed: not a terminal"; use the paste route.
+4. Verify without printing the key:
+   `chmod 600 <pem>; stat -c %a <pem>; openssl pkey -in <pem> -noout && echo OK`.
+   Expect `600` and `OK`.
+5. Find the ids.
+   - App id: the app settings page shows an "App ID" (plain integer,
+     e.g. `4071579`; this is `app_id`) and a "Client ID" (starts with
+     `Iv`). spore does not use the Client ID; ignore it.
+   - Installation id: an installation is the app added to an org or
+     account, with its own separate id. Org Settings -> GitHub Apps ->
+     Configure on the app opens
+     `github.com/organizations/<org>/settings/installations/<id>`;
+     the trailing number is `installation_id`. On that page, confirm
+     the app is installed on the target repos.
+6. Continue with [One-time setup](#one-time-setup) steps 4-5: https
+   `origin`, `spore gh config --set ...` with your own
+   `private_key`, `operator_login`, `commit_name`, `commit_email`, then
+   `spore gh token`.
 
 ## Config
 
