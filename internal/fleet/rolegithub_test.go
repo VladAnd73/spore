@@ -26,7 +26,8 @@ log="$FAKE_GH_LOG"
 for a in "$@"; do
   if [ "$a" = "--body-file" ]; then printf 'BODY:\n' >> "$log"; cat >> "$log"; printf 'END\n' >> "$log"; fi
 done
-if [ -e "$FAKE_GH_FAIL" ]; then echo "gh exploded" >&2; exit 1; fi
+if [ -e "$FAKE_GH_FAIL.sleep" ]; then sleep 30; fi
+if [ -e "$FAKE_GH_FAIL" ]; then echo "gh exploded, request id $$" >&2; exit 1; fi
 case "$1 $2" in
   "pr list") echo '[]' ;;
   "pr create") echo "https://github.com/acme/widget/pull/12" ;;
@@ -90,7 +91,7 @@ func newMirrorFixture(t *testing.T, prFlow string) *mirrorFixture {
 	if err := os.WriteFile(filepath.Join(f.tasksDir, "demo.md"), []byte("---\nstatus: active\nslug: demo\ntitle: Demo widget\nloop: role\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := task.WriteSpec(f.root, f.slug, []byte("**Status**: draft\n\n# demo\n\nMake the widget spin.\n")); err != nil {
+	if err := task.WriteSpec(f.root, f.slug, []byte("**Status**: draft\n\n# demo\n\nMake the widget spin.\n\nCoordinator-only: see /srv/private/notes.\n")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,10 +221,13 @@ func TestGitHubMirrorFullFlow(t *testing.T) {
 		t.Fatalf("branch not pushed to origin")
 	}
 	log := f.log(t)
-	for _, s := range []string{"TOKEN: ghs_app", "Make the widget spin.", "Dispatched by @octo", "`Review #1` / `Review #2`", "<details><summary>Spec</summary>"} {
+	for _, s := range []string{"TOKEN: ghs_app", "Make the widget spin.", "Dispatched by @octo", "`Review #1` / `Review #2`"} {
 		if !strings.Contains(log, s) {
 			t.Errorf("gh log missing %q:\n%s", s, log)
 		}
+	}
+	if strings.Contains(log, "Coordinator-only") {
+		t.Errorf("PR body leaks the brief past its summary:\n%s", log)
 	}
 	if s := f.state(t); s.PRNumber != 12 || s.PRURL != "https://github.com/acme/widget/pull/12" || s.PushedSHA != head {
 		t.Fatalf("state = %+v", s)
@@ -299,6 +303,33 @@ func TestGitHubMirrorFailureNotifiesOnce(t *testing.T) {
 	f.tick(t)
 	if s := f.state(t); s.LastError != "" || s.PRNumber != 12 || len(s.Posted) != 1 {
 		t.Fatalf("after recovery state = %+v", s)
+	}
+}
+
+// TestGitHubMirrorTimeout: a gh call that hangs past the deadline is
+// killed, recorded, and notified, and DriveRoleLoop still returns.
+func TestGitHubMirrorTimeout(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	old := mirrorCallTimeout
+	mirrorCallTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { mirrorCallTimeout = old })
+	writeEng(1)(t, f.root, f.slug)
+	if err := os.WriteFile(f.failFile+".sleep", nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := DriveRoleLoop(f.root, f.tasksDir, f.slug); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("DriveRoleLoop took %s", d)
+	}
+	envs := readInboxEnvelopes(t, f.inbox)
+	if len(envs) != 1 || !strings.Contains(envs[0].Body, "timed out") {
+		t.Fatalf("envelopes = %+v", envs)
+	}
+	if s := f.state(t); !strings.Contains(s.LastError, "timed out") || len(s.Posted) != 0 {
+		t.Fatalf("state = %+v", s)
 	}
 }
 

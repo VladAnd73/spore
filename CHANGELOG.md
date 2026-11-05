@@ -13,12 +13,14 @@
   comments; `PhaseDone` marks the PR ready and the coordinator notice
   becomes `<slug>: done, PR #N ready for operator approval: <url>`;
   an escalation adds one PR comment. Mirror state sits in
-  `.spore/<slug>/github.json`; GitHub errors never block the loop and
-  reach the coordinator once per distinct error. Engineer panes commit
+  `.spore/<slug>/github.json`; GitHub errors never block the loop
+  (every git/gh call and the token mint is capped at 60s, prompts
+  off) and reach the coordinator once per distinct error. The PR body
+  is the brief's first prose paragraph only. Engineer panes commit
   as `commit_name` / `commit_email`. New `spore gh config [--set k=v]`,
   `spore gh token` (installation token, cached 0600 until 5 min before
-  expiry), and `spore gh exec -- <cmd>` (GH_TOKEN plus a GIT_CONFIG_*
-  credential helper so gh and https git push act as the app; ssh
+  expiry), and `spore gh exec -- <cmd>` (GH_TOKEN and
+  GH_ENTERPRISE_TOKEN plus a GIT_CONFIG_* credential helper so gh and https git push act as the app; ssh
   origins refused). Engineer, reviewer, and coordinator role text name
   the flow and `base:`. Consumer impact: off by default and
   byte-identical when off; no consumer repo change. Turning it on needs

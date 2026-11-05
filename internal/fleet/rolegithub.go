@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/versality/spore/internal/ghapp"
 	"github.com/versality/spore/internal/task"
@@ -159,9 +160,9 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
 	err := m.run(snap)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "role-loop github mirror %s: %v\n", slug, err)
-		if msg := err.Error(); msg != m.state.LastError {
-			m.state.LastError = msg
-			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: github mirror failed, retrying each tick: %s", slug, msg))
+		if key := mirrorErrorKey(err); key != m.state.LastError {
+			m.state.LastError = key
+			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: github mirror failed, retrying each tick: %v", slug, err))
 			m.save()
 		}
 		return
@@ -170,6 +171,17 @@ func mirrorGitHub(projectRoot, tasksDir, slug string, snap Snapshot) {
 		m.state.LastError = ""
 		m.save()
 	}
+}
+
+// mirrorErrorKey is err's message with any git/gh stderr cut, so a
+// failure that only varies in stderr detail notifies once.
+func mirrorErrorKey(err error) string {
+	msg := err.Error()
+	var ce *cmdError
+	if errors.As(err, &ce) {
+		msg = strings.TrimSuffix(msg, ": "+ce.stderr)
+	}
+	return msg
 }
 
 // lockGitHubState takes a non-blocking flock beside the state file so
@@ -223,11 +235,13 @@ func (m *githubMirror) run(snap Snapshot) error {
 	if err := m.cfg.Validate(); err != nil {
 		return err
 	}
-	tok, err := ghapp.ProjectToken(context.Background(), m.projectRoot)
+	ctx, cancel := context.WithTimeout(context.Background(), mirrorCallTimeout)
+	defer cancel()
+	tok, err := ghapp.ProjectToken(ctx, m.projectRoot)
 	if err != nil {
 		return err
 	}
-	m.env = ghapp.Env(os.Environ(), tok.Token)
+	m.env = append(ghapp.Env(os.Environ(), tok.Token), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
 	for _, e := range pending {
 		if err := m.apply(e); err != nil {
 			return fmt.Errorf("%s: %w", e.name, err)
@@ -413,9 +427,9 @@ func (m *githubMirror) ensurePR() error {
 	return nil
 }
 
-// prSpecCap keeps the PR body under GitHub's 65536-character limit.
-const prSpecCap = 60000
-
+// prBody is the spec's summary paragraph plus a fixed footer. The rest
+// of spec.md (the coordinator's brief) stays off the PR: it can carry
+// host paths and coordinator-only instructions.
 func (m *githubMirror) prBody() string {
 	spec, _ := os.ReadFile(filepath.Join(task.RoleTaskDir(m.projectRoot, m.slug), "spec.md"))
 	var b strings.Builder
@@ -424,13 +438,6 @@ func (m *githubMirror) prBody() string {
 	}
 	fmt.Fprintf(&b, "Dispatched by @%s. Opened by spore's role loop: reviews arrive as `Review #1` / `Review #2` comments, and the PR leaves draft when both reviewers approve. @%s gives the only approval and merges.\n",
 		m.cfg.OperatorLogin, m.cfg.OperatorLogin)
-	if len(spec) > 0 {
-		full := string(spec)
-		if len(full) > prSpecCap {
-			full = full[:prSpecCap] + "\n\n[truncated]"
-		}
-		fmt.Fprintf(&b, "\n<details><summary>Spec</summary>\n\n%s\n</details>\n", full)
-	}
 	return b.String()
 }
 
@@ -460,10 +467,26 @@ func (m *githubMirror) gh(stdin string, args ...string) (string, error) {
 	return m.run1("gh", stdin, args...)
 }
 
+// mirrorCallTimeout bounds every git/gh call and the token mint: the
+// mirror runs inline in the fleet reconcile, so a hung call would stall
+// every task's role loop.
+var mirrorCallTimeout = 60 * time.Second
+
+// cmdError is a failed git/gh call. key drops stderr, which often
+// carries request ids, so a persistent failure notifies once.
+type cmdError struct {
+	key, stderr string
+}
+
+func (e *cmdError) Error() string { return e.key + ": " + e.stderr }
+
 // run1 runs name in the worktree as the app and returns trimmed
 // stdout; a failure carries stderr.
 func (m *githubMirror) run1(name, stdin string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), mirrorCallTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = time.Second
 	cmd.Dir = m.worktree
 	cmd.Env = m.env
 	if stdin != "" {
@@ -472,7 +495,13 @@ func (m *githubMirror) run1(name, stdin string, args ...string) (string, error) 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s %s: %v: %s", name, strings.Join(args[:min(2, len(args))], " "), err, strings.TrimSpace(stderr.String()))
+		if ctx.Err() != nil {
+			err = fmt.Errorf("timed out after %s", mirrorCallTimeout)
+		}
+		return "", &cmdError{
+			key:    fmt.Sprintf("%s %s: %v", name, strings.Join(args[:min(2, len(args))], " "), err),
+			stderr: strings.TrimSpace(stderr.String()),
+		}
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
