@@ -35,7 +35,7 @@ esac
 
 type mirrorFixture struct {
 	root, tasksDir, slug, wt, bare, ghLog, failFile, inbox string
-	mints                                                *atomic.Int32
+	mints                                                  *atomic.Int32
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
