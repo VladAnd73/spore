@@ -112,10 +112,16 @@ Below, `<pem>` is `~/.config/spore/<project>/github-app.pem`.
 4. Verify without printing the key:
    `chmod 600 <pem>; stat -c %a <pem>; openssl pkey -in <pem> -noout && echo OK`.
    Expect `600` and `OK`.
-5. Find the ids. App id: top of the app settings page. Installation
-   id: org Settings -> GitHub Apps -> Configure on the app; the number
-   at the end of the URL. On that page, confirm the app is installed
-   on the target repos.
+5. Find the ids.
+   - App id: the app settings page shows an "App ID" (plain integer,
+     e.g. `4071579`; this is `app_id`) and a "Client ID" (starts with
+     `Iv`). spore does not use the Client ID; ignore it.
+   - Installation id: an installation is the app added to an org or
+     account, with its own separate id. Org Settings -> GitHub Apps ->
+     Configure on the app opens
+     `github.com/organizations/<org>/settings/installations/<id>`;
+     the trailing number is `installation_id`. On that page, confirm
+     the app is installed on the target repos.
 6. Continue with [One-time setup](#one-time-setup) steps 4-5: https
    `origin`, `spore gh config --set ...` with your own
    `private_key`, `operator_login`, `commit_name`, `commit_email`, then
