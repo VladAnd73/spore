@@ -328,3 +328,20 @@ func TestCheckHTTPSRemote(t *testing.T) {
 		}
 	}
 }
+
+func TestGHRepo(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://github.com/acme/widget.git":     "github.com/acme/widget",
+		"https://github.com/acme/widget":         "github.com/acme/widget",
+		"https://x@ghe.example.com/acme/widget/": "ghe.example.com/acme/widget",
+	} {
+		if got, err := GHRepo(in); err != nil || got != want {
+			t.Errorf("GHRepo(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"git@github.com:acme/widget.git", "https://github.com/acme", "https://github.com/a/b/c"} {
+		if _, err := GHRepo(in); err == nil {
+			t.Errorf("GHRepo(%q) accepted", in)
+		}
+	}
+}

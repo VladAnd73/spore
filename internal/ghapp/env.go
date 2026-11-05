@@ -11,12 +11,13 @@ import (
 const credentialHelper = `!f() { test "$1" = get || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`
 
 // Env returns base with GH_TOKEN and GH_ENTERPRISE_TOKEN (which gh
-// reads instead for a GitHub Enterprise Server host) set to token, and
-// a git credential helper injected through GIT_CONFIG_COUNT /
-// GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n, so both `gh` and `git push` over https act as
-// the app. Existing GIT_CONFIG_* entries in base are kept; ours are
-// appended after them. The empty helper first clears any inherited
-// helper (the operator's own gh or store credentials).
+// reads instead for a GitHub Enterprise Server host) set to token,
+// and a git credential helper injected through GIT_CONFIG_COUNT /
+// GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n, so both `gh` and `git push`
+// over https act as the app. Existing GIT_CONFIG_* entries in base
+// are kept; ours are appended after them. The empty helper first
+// clears any inherited helper (the operator's own gh or store
+// credentials).
 func Env(base []string, token string) []string {
 	out := make([]string, 0, len(base)+7)
 	count := 0
@@ -52,4 +53,22 @@ func CheckHTTPSRemote(url string) error {
 		return nil
 	}
 	return fmt.Errorf("ghapp: remote %q is not https; the GitHub App pushes over https only (an ssh remote would push as your own key). Switch it: git remote set-url origin https://github.com/<owner>/<repo>.git", url)
+}
+
+// GHRepo turns an https origin URL into gh's GH_REPO form
+// (HOST/OWNER/REPO). Pinning gh to origin keeps it from resolving a
+// different remote (gh prefers `upstream`) than the one git pushes to.
+func GHRepo(url string) (string, error) {
+	if err := CheckHTTPSRemote(url); err != nil {
+		return "", err
+	}
+	parts := strings.Split(strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/"), ".git"), "/")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", fmt.Errorf("ghapp: remote %q is not https://<host>/<owner>/<repo>", url)
+	}
+	host := parts[0]
+	if _, h, ok := strings.Cut(host, "@"); ok {
+		host = h
+	}
+	return host + "/" + parts[1] + "/" + parts[2], nil
 }
