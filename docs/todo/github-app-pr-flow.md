@@ -153,6 +153,15 @@ for that pane only.
 - Signed commits (if a repo requires them, agent commits fail that
   rule; document, do not solve).
 
+## Follow-up (separate unit, after v1 is live)
+
+Coordinator initialization prompt: on first use (or via a skill such
+as `/github-identity`), the coordinator asks the operator whether
+agent PRs go through the org's GitHub App (`pr_flow = "draft"`, walks
+through the `github.toml` keys and runs `spore gh token` to verify) or
+through the operator's own account (`pr_flow = "off"`, today's
+behaviour). Answer persists in host-side `github.toml`.
+
 ## Operator setup (document in `docs/github-app.md`)
 
 1. Org owner: Settings -> Developer settings -> GitHub Apps -> New.
