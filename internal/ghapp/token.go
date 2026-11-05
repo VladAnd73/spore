@@ -75,8 +75,12 @@ func SignJWT(appID int64, key *rsa.PrivateKey, now time.Time) (string, error) {
 	return signing + "." + enc.EncodeToString(sig), nil
 }
 
+// defaultHTTP bounds the token request: the mint runs inside the fleet
+// reconcile, where one hung connection would stall every task.
+var defaultHTTP = &http.Client{Timeout: 30 * time.Second}
+
 // Minter fetches installation tokens. HTTP and Now default to
-// http.DefaultClient and time.Now.
+// defaultHTTP and time.Now.
 type Minter struct {
 	Config Config
 	HTTP   *http.Client
@@ -117,7 +121,7 @@ func (m Minter) Mint(ctx context.Context) (Token, error) {
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	client := m.HTTP
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultHTTP
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -271,16 +271,17 @@ func TestLoadConfigMissingIsOff(t *testing.T) {
 }
 
 func TestEnvShape(t *testing.T) {
-	env := Env([]string{"PATH=/bin", "GH_TOKEN=old", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=x"}, "tok")
+	env := Env([]string{"PATH=/bin", "GH_TOKEN=old", "GH_ENTERPRISE_TOKEN=old", "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=x"}, "tok")
 	want := map[string]string{
-		"PATH":               "/bin",
-		"GH_TOKEN":           "tok",
-		"GIT_CONFIG_COUNT":   "3",
-		"GIT_CONFIG_KEY_0":   "user.name",
-		"GIT_CONFIG_KEY_1":   "credential.helper",
-		"GIT_CONFIG_VALUE_1": "",
-		"GIT_CONFIG_KEY_2":   "credential.helper",
-		"GIT_CONFIG_VALUE_2": credentialHelper,
+		"PATH":                "/bin",
+		"GH_TOKEN":            "tok",
+		"GH_ENTERPRISE_TOKEN": "tok",
+		"GIT_CONFIG_COUNT":    "3",
+		"GIT_CONFIG_KEY_0":    "user.name",
+		"GIT_CONFIG_KEY_1":    "credential.helper",
+		"GIT_CONFIG_VALUE_1":  "",
+		"GIT_CONFIG_KEY_2":    "credential.helper",
+		"GIT_CONFIG_VALUE_2":  credentialHelper,
 	}
 	got := map[string]string{}
 	for _, kv := range env {
