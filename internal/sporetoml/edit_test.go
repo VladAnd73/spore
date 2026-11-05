@@ -102,3 +102,26 @@ func TestQuoteIsTOML(t *testing.T) {
 		}
 	}
 }
+
+func TestTopLevelKeys(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"empty file", "", "app_id = 7\n"},
+		{"after last top-level entry", "# c\na = 1\n\n[s]\nb = 2\n", "# c\na = 1\napp_id = 7\n\n[s]\nb = 2\n"},
+		{"replace", "app_id = 1 # old\n[s]\napp_id = 9\n", "app_id = 7 # old\n[s]\napp_id = 9\n"},
+		{"only a section", "[s]\nb = 2\n", "app_id = 7\n[s]\nb = 2\n"},
+	}
+	for _, c := range cases {
+		if got := SetKeyRaw(c.in, "", "app_id", "7"); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+	entries, err := ParseSection("a = \"x\"\n[s]\nb = 2\n", "")
+	if err != nil || len(entries) != 1 || entries[0].Key != "a" || entries[0].Value != "x" {
+		t.Fatalf("entries = %+v err = %v", entries, err)
+	}
+	if got := DeleteKey("a = 1\nb = 2\n[s]\na = 3\n", "", "a"); got != "b = 2\n[s]\na = 3\n" {
+		t.Fatalf("delete = %q", got)
+	}
+}

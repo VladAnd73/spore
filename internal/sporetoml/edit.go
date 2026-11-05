@@ -10,14 +10,27 @@ import (
 // SetKey returns content with `key = "value"` in [section]. An existing
 // line keeps its indentation and trailing comment; a missing key goes
 // after the section's last entry; a missing section is appended. Other
-// lines pass through byte for byte.
+// lines pass through byte for byte. Section "" is the top-level table:
+// a missing key goes after its last entry, else at the top.
 func SetKey(content, section, key, value string) string {
+	return SetKeyRaw(content, section, key, Quote(value))
+}
+
+// SetKeyRaw is SetKey with raw written verbatim as the value, for
+// integers and booleans.
+func SetKeyRaw(content, section, key, raw string) string {
 	lines, trailingNL := splitLines(content)
 	idx, last, header := locate(lines, section, key)
-	entry := key + " = " + Quote(value)
+	entry := key + " = " + raw
 	switch {
 	case idx >= 0:
 		lines[idx] = rewriteEntry(lines[idx], entry)
+	case section == "":
+		at := last + 1
+		lines = append(lines[:at], append([]string{entry}, lines[at:]...)...)
+		if len(lines) == 1 {
+			trailingNL = true
+		}
 	case header >= 0:
 		at := header
 		if last >= 0 {
@@ -112,7 +125,7 @@ func Quote(v string) string {
 // first [section] header wins.
 func locate(lines []string, section, key string) (idx, last, header int) {
 	idx, last, header = -1, -1, -1
-	in := false
+	in := section == ""
 	for i, raw := range lines {
 		line := strings.TrimSpace(StripComment(raw))
 		if line == "" {

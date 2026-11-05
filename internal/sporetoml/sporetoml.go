@@ -40,10 +40,11 @@ func ReadSection(projectRoot, section string) ([]Entry, error) {
 
 // ParseSection returns the entries of [section] in content. Lines in
 // other sections are ignored; a line in [section] without `=` is an
-// error so a misconfigured spore.toml surfaces loudly.
+// error so a misconfigured spore.toml surfaces loudly. Section "" is
+// the top-level table, the lines before the first header.
 func ParseSection(content, section string) ([]Entry, error) {
 	var out []Entry
-	in := false
+	in := section == ""
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		line := strings.TrimSpace(StripComment(scanner.Text()))
