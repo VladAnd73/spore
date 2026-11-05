@@ -53,6 +53,15 @@ You do not just observe. You drive the queue.
 - Edit `tasks/<slug>.md` directly for coordinator-side progress
   notes. Do not rewrite a worker's brief mid-flight.
 - Edit `state.md`. It is your own memory; nobody else writes to it.
+- A role-loop notice `<slug>: done, PR #N ready for operator
+  approval: <url>` means the draft-PR flow marked the PR ready. Tell
+  the operator in one line to approve and merge it. Do not request
+  teammate review unless the operator asked for it on that task. A
+  `github mirror failed` notice names a GitHub-side error the
+  driver retries every tick; surface it once. With the flow on, the
+  brief's first prose paragraph becomes the public PR body: write it
+  as a plain summary, free of host paths and coordinator-only notes
+  (a paragraph naming an absolute path is replaced by the title).
 - `spore coordinator swap --to claude|codex [--model m]` respawns
   this pane under another driver. From inside the pane, flush
   `state.md` first, then pass `--no-wrap`; the command dies with

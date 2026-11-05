@@ -43,6 +43,9 @@ import (
 //     owning pane is up to receive the wake.
 //   - Tells the coordinator when the active role stalls (see
 //     checkRoleStall).
+//   - With pr_flow = "draft" in the host-side github.toml, mirrors new
+//     round files to the task's draft PR (see mirrorGitHub); the done
+//     notice then comes from the mirror, carrying the PR url.
 //
 // Returns the snapshot observed after side effects.
 func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
@@ -69,6 +72,7 @@ func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("drive %s: snapshot: %w", slug, err)
 	}
 
+	prFlow := githubFlow(projectRoot)
 	engineer := EngineerSpec(projectRoot, slug)
 	engineer.TasksDir = tasksDir
 	switch snap.Phase {
@@ -111,7 +115,7 @@ func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
 		if err != nil {
 			return snap, fmt.Errorf("drive %s: write ready marker: %w", slug, err)
 		}
-		if created {
+		if created && !prFlow {
 			notifyRoleLoop(projectRoot, fmt.Sprintf("%s: done", slug))
 		}
 		// Operator wants the panes torn down once the branch is
@@ -132,6 +136,9 @@ func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
 		}
 	}
 
+	if prFlow {
+		mirrorGitHub(projectRoot, tasksDir, slug, snap)
+	}
 	if err := bounceInvalidRoleFiles(projectRoot, slug); err != nil {
 		return snap, fmt.Errorf("drive %s: bounce invalid files: %w", slug, err)
 	}
@@ -630,32 +637,30 @@ func buildSummary(projectRoot, slug, fingerprint string) (string, error) {
 				return "", err
 			}
 			fmt.Fprintf(&b, "### round %d\n\n", r)
-			if len(resp.Addressed) > 0 {
-				b.WriteString("Addressed:\n")
-				for _, c := range resp.Addressed {
-					fmt.Fprintf(&b, "- %s\n", c)
-				}
-				b.WriteString("\n")
-			}
-			if len(resp.Pushback) > 0 {
-				b.WriteString("Pushback:\n")
-				for _, c := range resp.Pushback {
-					fmt.Fprintf(&b, "- %s\n", c)
-				}
-				b.WriteString("\n")
-			}
-			if resp.Notes != "" {
-				fmt.Fprintf(&b, "Notes: %s\n\n", resp.Notes)
-			}
-			if len(resp.Followups) > 0 {
-				b.WriteString("Proposed follow-ups:\n")
-				for _, c := range resp.Followups {
-					fmt.Fprintf(&b, "- %s\n", c)
-				}
-				b.WriteString("\n")
-			}
+			writeEngineerResponse(&b, resp)
 		}
 	}
 
 	return b.String(), nil
+}
+
+// writeEngineerResponse renders resp's lists and notes; shared by the
+// summary and the PR mirror's engineer comment.
+func writeEngineerResponse(b *strings.Builder, resp task.EngineerResponse) {
+	list := func(head string, items []string) {
+		if len(items) == 0 {
+			return
+		}
+		b.WriteString(head + ":\n")
+		for _, c := range items {
+			fmt.Fprintf(b, "- %s\n", c)
+		}
+		b.WriteString("\n")
+	}
+	list("Addressed", resp.Addressed)
+	list("Pushback", resp.Pushback)
+	if resp.Notes != "" {
+		fmt.Fprintf(b, "Notes: %s\n\n", resp.Notes)
+	}
+	list("Proposed follow-ups", resp.Followups)
 }

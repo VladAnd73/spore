@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/versality/spore/internal/ghapp"
 	"github.com/versality/spore/internal/task"
 	"github.com/versality/spore/internal/task/frontmatter"
 )
@@ -115,9 +116,28 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if s.Role == "reviewer" {
 		args = append(args, "-e", "SPORE_REVIEWER_INSTANCE="+string(s.ReviewerInstance))
 	}
+	if s.Role == "engineer" {
+		args = append(args, commitIdentityEnv(s.ProjectRoot)...)
+	}
 	prelude := task.LoadPreStart(s.ProjectRoot).Prelude(s.ProjectRoot, s.Slug, roleKey(s))
 	args = append(args, roleShellCommand(prelude, withBody, bare, rolePath))
 	return args, nil
+}
+
+// commitIdentityEnv authors engineer commits as the dispatching
+// operator when the draft-PR flow is on: the app pushes, the operator
+// is the commit author, so the operator can approve the app's PR. A
+// github.toml that fails to load adds nothing; the mirror reports it.
+func commitIdentityEnv(projectRoot string) []string {
+	cfg, err := ghapp.LoadConfig(projectRoot)
+	if err != nil || !cfg.Enabled() || cfg.CommitName == "" || cfg.CommitEmail == "" {
+		return nil
+	}
+	var out []string
+	for _, k := range []string{"GIT_AUTHOR", "GIT_COMMITTER"} {
+		out = append(out, "-e", k+"_NAME="+cfg.CommitName, "-e", k+"_EMAIL="+cfg.CommitEmail)
+	}
+	return out
 }
 
 // invocations returns the pane's agent command with and without a

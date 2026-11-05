@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func notifyCoordinatorAt(inbox, source, body string) error {
 	}
 	b = append(b, '\n')
 
-	name := fmt.Sprintf("%d-%d-1.json", time.Now().UnixMilli(), os.Getpid())
+	name := fmt.Sprintf("%d-%d-%d.json", time.Now().UnixMilli(), os.Getpid(), notifySeq.Add(1))
 	tmp := filepath.Join(inbox, ".tmp", name)
 	dst := filepath.Join(inbox, name)
 
@@ -71,6 +72,10 @@ func notifyCoordinatorAt(inbox, source, body string) error {
 	}
 	return nil
 }
+
+// notifySeq keeps two notices from one process in the same millisecond
+// from landing on the same inbox file name.
+var notifySeq atomic.Uint64
 
 type tellEvent struct {
 	Ts     string `json:"ts"`
