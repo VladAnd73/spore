@@ -2,11 +2,13 @@ package hooks
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/versality/spore/internal/coordinator/statearchive"
 	"github.com/versality/spore/internal/transcript"
 )
 
@@ -24,7 +26,7 @@ func CodexStartContext() string {
 	var parts []string
 	if slug := os.Getenv("SPORE_TASK_SLUG"); slug == "" || slug == "coordinator" {
 		if body, err := os.ReadFile(filepath.Join(root, "state.md")); err == nil && len(body) > 0 {
-			parts = append(parts, "# state.md ("+filepath.Join(root, "state.md")+")\n\n"+string(body))
+			parts = append(parts, StateSizeWarning(len(body))+"# state.md ("+filepath.Join(root, "state.md")+")\n\n"+string(body))
 		}
 	}
 	dir := claudeMemoryDir(root)
@@ -33,6 +35,18 @@ func CodexStartContext() string {
 			dir+"/; read one when its line is relevant.\n\n"+string(body))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// StateSizeWarning mirrors the warning load-state-md.pl prepends when
+// state.md exceeds statearchive.Budget; "" when it fits.
+func StateSizeWarning(size int) string {
+	if size <= statearchive.Budget {
+		return ""
+	}
+	return fmt.Sprintf("WARNING: state.md is %d bytes, over the %d-byte SessionStart budget; "+
+		"most of it is not injected. Run `spore coordinator state ls`, then "+
+		"`spore coordinator state archive <id>... --slug <name>` for verifiably done blocks.\n\n",
+		size, statearchive.Budget)
 }
 
 // CodexStartOutput wraps ctx in the SessionStart JSON codex-rs parses

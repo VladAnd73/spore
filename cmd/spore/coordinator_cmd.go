@@ -41,6 +41,7 @@ Subcommands:
   swap            Respawn the coordinator under another driver (claude|codex).
   agents          List swap drivers: current, available, or missing.
   role-brief      Render the coordinator role brief to stdout.
+  state           List state.md blocks and archive done ones host-side.
   state-debt      Scan state.md for prose lessons that should be lifted.
   verify-done     Run the verify-done verdict for a slug.
   loop-guard      Check the respawn circuit breaker.
@@ -72,6 +73,8 @@ func runCoordinator(args []string) int {
 		return runCoordinatorAgents(rest)
 	case "role-brief":
 		return runCoordinatorRoleBrief(rest)
+	case "state":
+		return runCoordinatorState(rest)
 	case "state-debt":
 		return runCoordinatorStateDebt(rest)
 	case "verify-done":

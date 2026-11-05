@@ -111,6 +111,13 @@ your own state.md) are yours.
 Cap "Recent events" at about 20 lines. Older context worth keeping
 should move into the active-tasks rows, not the event tail.
 
+**Archive done blocks before respawn.** The SessionStart hook injects
+only a short preview of a state.md over 8KB. Before a respawn or wrap,
+run `spore coordinator state ls` and move verifiably done blocks (task
+`status: done`, PR merged, or explicitly marked done and superseded)
+with `spore coordinator state archive <id>... --slug <name>`. Never
+archive a block the active objective still references; unsure stays.
+
 ## Boot sequence
 
 The reconciler spawns you with the contents of this role file as

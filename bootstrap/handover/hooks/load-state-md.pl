@@ -39,10 +39,22 @@ if ($gcd ne '') {
 }
 
 my $path = "$root/state.md";
+my $bytes = -s $path;
 open my $fh, '<:encoding(UTF-8)', $path or exit 0;
 my $body = do { local $/; <$fh> };
 close $fh;
 exit 0 unless defined $body && length $body;
+
+# Claude Code persists hook output above ~8KB to a file and injects
+# only a short preview, so an oversized state.md is mostly lost.
+my $budget = 8192;
+if (defined $bytes && $bytes > $budget) {
+    $body = "WARNING: state.md is $bytes bytes, over the $budget-byte "
+          . "SessionStart budget; most of it is not injected. Run "
+          . "`spore coordinator state ls`, then `spore coordinator state "
+          . "archive <id>... --slug <name>` for verifiably done blocks.\n\n"
+          . $body;
+}
 
 print encode_json({
   hookSpecificOutput => {

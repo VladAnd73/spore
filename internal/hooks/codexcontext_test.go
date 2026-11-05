@@ -126,3 +126,58 @@ func TestCodexStartOutputShape(t *testing.T) {
 		t.Error("context was truncated")
 	}
 }
+
+func TestStateSizeWarningCodexAndPerlHook(t *testing.T) {
+	main, wt := contextFixture(t)
+	t.Setenv("SPORE_PROJECT_ROOT", wt)
+	t.Setenv("SPORE_TASK_SLUG", "coordinator")
+	if got := CodexStartContext(); strings.Contains(got, "WARNING: state.md") {
+		t.Fatalf("small state.md must not warn:\n%s", got)
+	}
+	big := "STATE-BODY\n" + strings.Repeat("x", 9000) + "\n"
+	if err := os.WriteFile(filepath.Join(main, "state.md"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := "WARNING: state.md is 9012 bytes, over the 8192-byte SessionStart budget"
+	if got := CodexStartContext(); !strings.HasPrefix(got, want) || !strings.Contains(got, "STATE-BODY") {
+		t.Fatalf("codex context should lead with the size warning:\n%.300s", got)
+	}
+
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("perl not on PATH")
+	}
+	hook, err := filepath.Abs("../../bootstrap/handover/hooks/load-state-md.pl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		body string
+		warn bool
+	}{{"STATE-BODY\n", false}, {big, true}} {
+		if err := os.WriteFile(filepath.Join(main, "state.md"), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("perl", hook)
+		cmd.Env = append(os.Environ(), "CLAUDE_PROJECT_DIR="+wt, "SPORE_TASK_SLUG=coordinator")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("hook: %v", err)
+		}
+		var res struct {
+			HookSpecificOutput struct {
+				AdditionalContext string `json:"additionalContext"`
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(out, &res); err != nil {
+			t.Fatalf("hook output %q: %v", out, err)
+		}
+		ctx := res.HookSpecificOutput.AdditionalContext
+		if tc.warn {
+			if !strings.HasPrefix(ctx, want) || !strings.HasSuffix(ctx, tc.body) {
+				t.Fatalf("perl hook should prepend the warning:\n%.300s", ctx)
+			}
+		} else if ctx != tc.body {
+			t.Fatalf("perl hook changed a small state.md: %q", ctx)
+		}
+	}
+}
