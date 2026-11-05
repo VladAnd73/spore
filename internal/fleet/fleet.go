@@ -190,42 +190,33 @@ func Reconcile(cfg Config) (Result, error) {
 	}
 	agentCounts := agentCountsFromMetas(metas, runningSet)
 
-	// A task with `loop: role` in its frontmatter or `.spore/<slug>/`
-	// on disk is opted into the role-loop and owned solely by
-	// DriveRoleLoop. The homogeneous spawn below must skip it:
-	// otherwise Reconcile would mint a generic worker at
-	// spore/<project>/<slug> (invisible to runningSet, which only tracks
-	// the spore-role/<project>/ prefix) on top of the role panes that
-	// edit the same wt/<slug> branch. The frontmatter key is the
-	// race-free opt-in: it rides in the same file write that flips
-	// status to active, so the watcher-triggered pass that reacts to
-	// that write already sees it, with no window where the slug looks
-	// generic because the dir has not been seeded yet. Dir presence
-	// stays as the legacy opt-in for tasks seeded by hand.
-	roleLoopKeyed := map[string]bool{}
+	// A task with `loop: role` in its frontmatter is opted into the
+	// role-loop and owned solely by DriveRoleLoop. The homogeneous
+	// spawn below must skip it: otherwise Reconcile would mint a
+	// generic worker at spore/<project>/<slug> (invisible to
+	// runningSet, which only tracks the spore-role/<project>/ prefix)
+	// on top of the role panes that edit the same wt/<slug> branch.
+	// The key rides in the same file write that flips status to
+	// active, so the watcher-triggered pass already sees it. The key is
+	// the only opt-in: `.spore/<slug>/` presence is not, because
+	// coordinators stage briefs there for generic tasks too.
+	roleLooped := map[string]bool{}
 	for _, m := range metas {
 		switch {
 		case m.Loop == task.LoopRole:
-			roleLoopKeyed[m.Slug] = true
+			roleLooped[m.Slug] = true
 		case m.Loop != "" && m.Status == "active":
 			w := fmt.Sprintf("task %s: unknown loop: %q (want %q or empty); treating as a generic worker task", m.Slug, m.Loop, task.LoopRole)
 			fmt.Fprintln(os.Stderr, w)
 			res.Warnings = append(res.Warnings, w)
 		}
 	}
-	isRoleLooped := func(slug string) bool {
-		if roleLoopKeyed[slug] {
-			return true
-		}
-		_, err := os.Stat(task.RoleTaskDir(cfg.ProjectRoot, slug))
-		return err == nil
-	}
 
 	for _, slug := range actives {
 		if runningSet[slug] {
 			continue
 		}
-		if isRoleLooped(slug) {
+		if roleLooped[slug] {
 			continue
 		}
 		if len(runningSet) >= cfg.MaxWorkers {
@@ -254,10 +245,9 @@ func Reconcile(cfg Config) (Result, error) {
 	// Advance any role-looped tasks. DriveRoleLoop owns the worktree
 	// precondition for these slugs (see the homogeneous-spawn skip
 	// above) and creates `.spore/<slug>/` itself on the first tick, so
-	// a task opted in via `loop: role` alone starts moving on the same
-	// pass that classified it.
+	// a task starts moving on the same pass that classified it.
 	for _, slug := range actives {
-		if !isRoleLooped(slug) {
+		if !roleLooped[slug] {
 			continue
 		}
 		if _, err := DriveRoleLoop(cfg.ProjectRoot, cfg.TasksDir, slug); err != nil {

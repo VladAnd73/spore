@@ -25,14 +25,15 @@ homogeneous worker for the slug, and drives the role loop instead.
 No pre-seeding is needed; the first drive tick creates
 `.spore/<slug>/`.
 
-Legacy opt-in: a `.spore/<slug>/` dir on disk also marks the slug
-role-looped, keyed or not. Tasks minted before the `loop:` key relied
-on seeding the dir (`spore task role-drive <slug>`) while the task
-was still a draft; that path still works but is racy if you activate
-before seeding, so prefer the key for new tasks.
+`loop: role` is the only opt-in. A `.spore/<slug>/` dir on disk does
+not mark the slug role-looped: coordinators stage briefs and inputs
+there for generic tasks too, and those tasks keep their single
+homogeneous worker. A task seeded by hand with only the dir needs
+`loop: role` added to enter the role loop.
 
 `role-drive` is also the manual driver: each run advances the loop by
-one idempotent tick. The reconciler calls the same drive for
+one idempotent tick, and refuses a task whose frontmatter lacks
+`loop: role`. The reconciler calls the same drive for
 role-looped slugs on every pass, so an active task keeps moving
 without manual ticks.
 

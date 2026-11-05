@@ -176,7 +176,7 @@ func TestDriveRoleLoopCachesSpec(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(tasksDir, "demo.md"),
-		[]byte("---\nstatus: active\nslug: demo\n---\n# body\n\nthe spec.\n"),
+		[]byte("---\nstatus: active\nslug: demo\nloop: role\n---\n# body\n\nthe spec.\n"),
 		0o644,
 	); err != nil {
 		t.Fatal(err)
@@ -262,6 +262,7 @@ func TestDriveRoleLoopWritesEscalationMarker(t *testing.T) {
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeRoleLoopTask(t, tasksDir, slug, "active")
 	// Pre-create role-task dir, worktree dir, and spec cache so the
 	// drive call skips tmux/git-touching side effects and runs only
 	// the marker logic we care about.
@@ -367,6 +368,7 @@ func TestDriveRoleLoopWritesReadyMarker(t *testing.T) {
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeRoleLoopTask(t, tasksDir, slug, "active")
 	if _, err := task.EnsureRoleTaskDir(root, slug); err != nil {
 		t.Fatal(err)
 	}
@@ -446,15 +448,17 @@ func readInboxEnvelopes(t *testing.T, inbox string) []roleLoopTellEnvelope {
 	return envs
 }
 
-// setupRoleLoopDriveFixture pre-creates the role-task dir, worktree
-// dir, and spec cache so DriveRoleLoop skips tmux/git-touching side
-// effects (same shape as the marker tests above). Returns tasksDir.
+// setupRoleLoopDriveFixture writes a `loop: role` task file and
+// pre-creates the role-task dir, worktree dir, and spec cache so
+// DriveRoleLoop skips tmux/git-touching side effects (same shape as
+// the marker tests above). Returns tasksDir.
 func setupRoleLoopDriveFixture(t *testing.T, root, slug string) string {
 	t.Helper()
 	tasksDir := filepath.Join(root, "tasks")
 	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	writeRoleLoopTask(t, tasksDir, slug, "active")
 	if _, err := task.EnsureRoleTaskDir(root, slug); err != nil {
 		t.Fatal(err)
 	}
@@ -705,5 +709,33 @@ func mustWriteReview(t *testing.T, root, slug string, instance task.ReviewerInst
 	t.Helper()
 	if err := task.WriteReview(root, slug, instance, round, r); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDriveRoleLoopRefusesGenericTask pins that a task without
+// `loop: role` is refused even when `.spore/<slug>/` holds a staged
+// brief, and that the refusal spawns nothing and writes no role state.
+func TestDriveRoleLoopRefusesGenericTask(t *testing.T) {
+	root := newGitRepoFor(t, "demo-project")
+	t.Setenv("SPORE_COORDINATOR_STATE_DIR", t.TempDir())
+	slug := "brief"
+	tasksDir := filepath.Join(root, "tasks")
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTask(t, tasksDir, slug, "active")
+	if err := task.WriteSpec(root, slug, []byte("staged brief\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := DriveRoleLoop(root, tasksDir, slug)
+	if err == nil || !strings.Contains(err.Error(), "loop: role") {
+		t.Fatalf("DriveRoleLoop err = %v, want refusal naming loop: role", err)
+	}
+	if _, err := os.Stat(filepath.Join(task.RoleTaskDir(root, slug), "state")); !os.IsNotExist(err) {
+		t.Errorf("state dir created on refused drive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".worktrees", slug)); !os.IsNotExist(err) {
+		t.Errorf("worktree created on refused drive: %v", err)
 	}
 }

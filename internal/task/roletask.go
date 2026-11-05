@@ -33,9 +33,27 @@ const RoleTaskRoot = ".spore"
 // role-based loop. Carried in tasks/<slug>.md so the opt-in travels
 // in the same write that flips `status: active`: the fleet reconciler
 // sees both atomically and never homogeneous-spawns the slug, even
-// before `.spore/<slug>/` exists on disk. Dir presence remains the
-// legacy opt-in signal alongside this key.
+// before `.spore/<slug>/` exists on disk. The key is the only opt-in:
+// `.spore/<slug>/` on its own never classifies a task as role-looped,
+// since coordinators stage briefs there for generic tasks too.
 const LoopRole = "role"
+
+// RequireRoleLoop errors unless tasks/<slug>.md carries `loop: role`.
+func RequireRoleLoop(tasksDir, slug string) error {
+	path := filepath.Join(tasksDir, slug+".md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	m, _, err := frontmatter.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("roletask: parse %s: %w", path, err)
+	}
+	if m.Loop != LoopRole {
+		return fmt.Errorf("task %s: not role-looped (frontmatter lacks loop: %s); add it to opt in", slug, LoopRole)
+	}
+	return nil
+}
 
 // IsEscalated reports whether any `state/escalated-*` marker exists
 // under `<roletaskdir>/state/`. The role-loop driver writes one such

@@ -219,7 +219,9 @@ func TestReconcileSortsStampedBeforeUnstamped(t *testing.T) {
 //     run: the watcher-triggered pass reacts to the status flip before
 //     any dir is seeded. The key alone must keep the homogeneous spawn
 //     away, and the drive pass must create the dir itself.
-//   - "legacy": no key, dir seeded upfront. The pre-key opt-in.
+//   - "staged": no key, `.spore/<slug>/spec.md` staged by a
+//     coordinator. Dir presence is not an opt-in: exactly one generic
+//     worker and no role pane.
 //   - "plain": neither signal. Generic worker path unchanged.
 func TestReconcileRoleLoopOptIns(t *testing.T) {
 	requireToolchain(t)
@@ -231,8 +233,8 @@ func TestReconcileRoleLoopOptIns(t *testing.T) {
 	shimClaudeOnPath(t)
 
 	writeRoleLoopTask(t, dirs.tasks, "keyed", "active")
-	writeTask(t, dirs.tasks, "legacy", "active")
-	if _, err := task.EnsureRoleTaskDir(dirs.project, "legacy"); err != nil {
+	writeTask(t, dirs.tasks, "staged", "active")
+	if err := task.WriteSpec(dirs.project, "staged", []byte("review brief\n")); err != nil {
 		t.Fatal(err)
 	}
 	writeTask(t, dirs.tasks, "plain", "active")
@@ -250,7 +252,7 @@ func TestReconcileRoleLoopOptIns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if got, want := r.Spawned, []string{"plain"}; !equalSlices(got, want) {
+	if got, want := r.Spawned, []string{"plain", "staged"}; !equalSlices(got, want) {
 		t.Errorf("Spawned = %v, want %v", got, want)
 	}
 	if len(r.Skipped) != 0 {
@@ -261,17 +263,21 @@ func TestReconcileRoleLoopOptIns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slug := range []string{"keyed", "legacy"} {
-		if hasSession(fmt.Sprintf("spore/%s/%s", project, slug)) {
-			t.Errorf("%s: generic worker session spawned for a role-looped task", slug)
-		}
-		if !hasSession(fmt.Sprintf("spore-role/%s/%s/engineer", project, slug)) {
-			t.Errorf("%s: engineer pane missing; drive pass did not proceed", slug)
-		}
-		spec := filepath.Join(task.RoleTaskDir(dirs.project, slug), "spec.md")
-		if _, err := os.Stat(spec); err != nil {
-			t.Errorf("%s: spec cache missing at %s: %v", slug, spec, err)
-		}
+	if hasSession(fmt.Sprintf("spore/%s/keyed", project)) {
+		t.Errorf("keyed: generic worker session spawned for a role-looped task")
+	}
+	if !hasSession(fmt.Sprintf("spore-role/%s/keyed/engineer", project)) {
+		t.Errorf("keyed: engineer pane missing; drive pass did not proceed")
+	}
+	spec := filepath.Join(task.RoleTaskDir(dirs.project, "keyed"), "spec.md")
+	if _, err := os.Stat(spec); err != nil {
+		t.Errorf("keyed: spec cache missing at %s: %v", spec, err)
+	}
+	if !hasSession(fmt.Sprintf("spore/%s/staged", project)) {
+		t.Errorf("staged: generic worker session missing")
+	}
+	if hasSession(fmt.Sprintf("spore-role/%s/staged/engineer", project)) {
+		t.Errorf("staged: engineer pane spawned; .spore/<slug>/ presence must not opt into the role loop")
 	}
 }
 

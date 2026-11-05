@@ -46,6 +46,11 @@ import (
 //
 // Returns the snapshot observed after side effects.
 func DriveRoleLoop(projectRoot, tasksDir, slug string) (Snapshot, error) {
+	// Checked before anything touches .spore/<slug>/, so a refused
+	// drive on a generic task leaves no role state behind.
+	if err := task.RequireRoleLoop(tasksDir, slug); err != nil {
+		return Snapshot{}, fmt.Errorf("drive %s: %w", slug, err)
+	}
 	if err := task.CacheSpecFromTaskFile(projectRoot, tasksDir, slug); err != nil {
 		return Snapshot{}, fmt.Errorf("drive %s: cache spec: %w", slug, err)
 	}
