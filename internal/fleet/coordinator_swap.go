@@ -206,9 +206,9 @@ func SwapCoordinator(spec SwapSpec) (SwapResult, error) {
 // of these the driver names the binary. A bare claude or codex that contradicts the target driver is
 // an error, not a silent wrong-agent respawn.
 func swapAgent(session, global map[string]string, to string) (string, error) {
-	agent := session[CoordinatorAgentEnv]
+	agent := strings.TrimSpace(session[CoordinatorAgentEnv])
 	if agent == "" {
-		agent = global[CoordinatorAgentEnv]
+		agent = strings.TrimSpace(global[CoordinatorAgentEnv])
 	}
 	if agent == "" {
 		if fi, err := os.Stat(swapHostLauncher); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {

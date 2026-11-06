@@ -350,6 +350,9 @@ func TestSwapAgentPrecedence(t *testing.T) {
 		{"driver binary claude", "", "", "claude", "claude", false, false},
 		{"bare claude agent cannot run codex", "SPORE_COORDINATOR_AGENT=claude\n", "", "codex", "", true, false},
 		{"bare codex agent cannot run claude", "", "SPORE_COORDINATOR_AGENT=/run/current-system/sw/bin/codex -m x\n", "claude", "", true, false},
+		{"whitespace session env falls through to global", "SPORE_COORDINATOR_AGENT=  \t \n", "SPORE_COORDINATOR_AGENT=" + launch + "\n", "codex", launch, false, false},
+		{"whitespace session and global fall through to host launcher", "SPORE_COORDINATOR_AGENT=   \n", "SPORE_COORDINATOR_AGENT= \t\n", "codex", "", false, true},
+		{"whitespace session and global fall through to driver binary", "SPORE_COORDINATOR_AGENT=   \n", "SPORE_COORDINATOR_AGENT= \t\n", "claude", "claude", false, false},
 		{"matching bare agent is fine", "SPORE_COORDINATOR_AGENT=claude\n", "", "claude", "claude", false, false},
 	}
 	for _, c := range cases {
