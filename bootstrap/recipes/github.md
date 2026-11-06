@@ -33,6 +33,85 @@ collisions). Typical setup:
 Mode 0600 on each file, 0700 on each containing dir. Never use
 `GITHUB_TOKEN` -- see "Auth gotcha".
 
+## GitHub App (`spore gh`)
+
+A project may also act on GitHub as a GitHub App instead of the
+personal token above. The App config is not in the secrets files,
+so a secrets check alone will not find it.
+
+### Detect
+
+Run from inside the project repo (or with `SPORE_PROJECT_ROOT`
+set):
+
+```
+spore gh config
+```
+
+It prints `$XDG_STATE_HOME/spore/<project>/github.toml`. A header
+ending in `(absent: pr_flow off)` means no App is configured for
+this project. Config is per project: an App set up for one project
+does not carry over to another. Run this before telling the
+operator no App exists, and confirm a token mints with
+`spore gh token`.
+
+### Set up for a new project
+
+The org has one App and one installation, shared by every
+teammate; each teammate brings their own private key. App creation
+and teammate onboarding (key generation, finding the ids) live in
+`docs/github-app.md` in the spore repo. Once the ids and key are in
+hand:
+
+```
+spore gh config --set app_id=<app id> \
+  --set installation_id=<installation id> \
+  --set private_key=~/.config/spore/<project>/github-app.pem
+spore gh token
+```
+
+`--set key=` deletes a key. `origin` must be https
+(`git remote set-url origin https://github.com/<owner>/<repo>.git`);
+`spore gh exec` refuses an ssh origin, since it would push as your
+own key.
+
+### Use
+
+```
+spore gh exec -- gh pr view <number>
+spore gh exec -- gh pr review <number> --comment --body "..."
+spore gh exec -- git push -u origin <feature-branch>
+```
+
+`exec` sets `GH_TOKEN` to an installation token and injects a git
+credential helper, so both `gh` and `git push` over https act as
+the App. For raw API calls, `spore gh token` prints the token:
+
+```
+curl -sH "Authorization: Bearer $(spore gh token)" \
+  https://api.github.com/repos/<owner>/<repo>/pulls
+```
+
+This is an installation token. Endpoints that need the App's own
+JWT (`GET /app`, anything under `/app/installations`) reject it with 401 "A JSON web token could not be
+decoded"; that is expected, not a broken setup.
+
+### App or personal token
+
+- Reach for the App when the action should show up as the bot
+  (PR comments, automated reviews, pushes from the role loop) or
+  when the personal token lacks access to the repo.
+- Reach for `spore-with-secrets gh` when the action should carry
+  the operator's identity, or when `spore gh config` is absent.
+- `pr_flow=draft` only turns on the role loop's draft-PR mirror.
+  Plain `spore gh exec` / `spore gh token` work without it.
+
+### Policy caveat
+
+An App approval is an automated approval. A repo's review rules
+(e.g. "N human approvals") still apply. Do not present an App
+review as satisfying them unless the operator says so.
+
 ## Mint the token
 
 Fine-grained PATs scope per-repo and per-permission, which is

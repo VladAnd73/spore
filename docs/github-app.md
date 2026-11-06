@@ -3,7 +3,9 @@
 With `pr_flow = "draft"`, the role loop runs on a visible draft PR. A
 GitHub App pushes the task branch, opens the PR, and posts every
 round; the operator gives the only approval and merges. Design and
-locked decisions: `docs/todo/github-app-pr-flow.md`.
+locked decisions: `docs/todo/github-app-pr-flow.md`. For ad-hoc use
+from a coordinator (detect, `spore gh exec`, App vs personal token),
+see `spore recipes show github`.
 
 ## What happens
 
