@@ -31,10 +31,10 @@ poke them with `spore task tell <slug> "<msg>"`.
   any progress notes). Read it directly.
 - `tmux capture-pane -t <session> -p` gives the tail of a worker's
   pane. Use sparingly; pulling transcripts inflates your context.
-- `<XDG_STATE_HOME>/spore/<project>/coordinator/state.md` is your
-  living memory. You own it. Read it on every boot; update it
-  after every meaningful turn. Anything not there is forgotten on
-  the next respawn, by design.
+- `<main repo root>/state.md` is your living memory (a worktree
+  hops to it via `git rev-parse --git-common-dir`). You own it.
+  Read it on every boot; update it after every meaningful turn.
+  Anything not there is forgotten on the next respawn, by design.
 
 ## Actions
 
@@ -133,7 +133,7 @@ The reconciler spawns you with the contents of this role file as
 the first user message, so this sequence runs unattended on every
 respawn. Do not pause to ask the operator to confirm any step.
 
-1. Read `<XDG_STATE_HOME>/spore/<project>/coordinator/state.md`.
+1. Read `<main repo root>/state.md`.
    If it does not exist, create it from the template above with
    empty tables.
 2. Run `spore task ls` and reconcile state.md against it: drop
