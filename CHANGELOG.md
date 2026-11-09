@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Recipes: `slack` (read-only Slack Web API via a bot token,
+  `SLACK_BOT_TOKEN`), ported from PR #38 (MT3-9450). Markdown only.
+
 - Role loop: per-slot reviewer config. New `[fleet.reviewers.A]` /
   `[fleet.reviewers.B]` tables (spore.toml or the host overlay
   `workers.toml`) with `mode` (`fleet` default, or `code-review`),
