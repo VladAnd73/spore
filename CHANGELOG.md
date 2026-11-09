@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Role loop: per-slot reviewer config. New `[fleet.reviewers.A]` /
+  `[fleet.reviewers.B]` tables (spore.toml or the host overlay
+  `workers.toml`) with `mode` (`fleet` default, or `code-review`),
+  optional `agent`, and `effort` (code-review only, default
+  `medium`). A `code-review` slot runs the new role body
+  `bootstrap/roles/reviewer-code-review.md`, which drives Claude
+  Code's `/code-review` skill and maps its findings onto the same
+  verdict file; it is claude-only (`code-review` plus a non-claude
+  `agent` fails config load). Reviewer panes get
+  `SPORE_REVIEWER_MODE` and, in code-review mode,
+  `SPORE_REVIEW_EFFORT`. `engineer.md` tells the engineer to push
+  back on spec-blind findings. spore's own spore.toml runs A =
+  code-review, B = fleet. Consumer impact: defaults unchanged (both
+  slots `fleet`); projects that symlink `bootstrap/roles/*.md` one by
+  one must add `reviewer-code-review.md` before enabling the mode.
 - `spore coordinator state-debt` scans `<main repo root>/state.md` by
   default, the same file `state ls` / `state archive` edit: run from a
   worktree, it hops to the main repo root. New `--project NAME|PATH`

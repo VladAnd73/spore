@@ -120,7 +120,8 @@ lives in `state/activity-<role>-r<round>`.
 All panes run in the task worktree with `SPORE_TASK_DIR` pointing at
 the absolute `.spore/<slug>/` tree, plus `SPORE_TASK_SLUG`,
 `SPORE_PROJECT_ROOT`, `WT_PROJECT`, and `SPORE_ROLE` in the
-environment. Role bodies come from `bootstrap/roles/<role>.md`.
+environment. Role bodies come from `bootstrap/roles/<role>.md`
+(see "Reviewer slots" for the code-review body).
 When `[fleet] account_tier` is set in spore.toml, panes also get
 `SPORE_ACCOUNT_TIER`, and `spore worker token-monitor` meters them
 with the same three bands as workers (soft warn, finish-unit, force)
@@ -130,6 +131,48 @@ only if it is complete, then kill the pane session; the drive loop
 respawns the phase's pane on its next tick and it resumes from the
 branch plus artifacts. The soft warn fires once per session via a
 marker at `.spore/<slug>/state/token-monitor/<session_id>.soft`.
+
+### Reviewer slots
+
+Each reviewer slot (A, B) picks how it produces its verdict, in
+spore.toml or the host overlay (`$XDG_STATE_HOME/spore/<project>/workers.toml`,
+which wins key by key):
+
+```toml
+[fleet.reviewers.A]
+mode   = "code-review"  # "fleet" (default) | "code-review"
+agent  = "claude"       # optional; default is the task / [fleet.workers] agent
+effort = "medium"       # code-review only: low|medium|high|xhigh|max (default medium)
+
+[fleet.reviewers.B]
+mode = "fleet"
+```
+
+- `fleet` runs `bootstrap/roles/reviewer.md`: spec conformance, runs
+  tests and lints. Both slots default to it.
+- `code-review` runs `bootstrap/roles/reviewer-code-review.md`, which
+  invokes Claude Code's `code-review` skill at `effort` on the branch
+  diff (on the draft PR with `--comment` when `github.json` holds a
+  PR number). Findings map to the verdict: any non-cosmetic finding
+  is `request_changes`, none or cosmetic-only is `approve`, one
+  `path:line: text` comment per finding. The verdict file schema and
+  the `Review #1` / `Review #2` mirror are unchanged. The run has no
+  spec context, so the engineer pushes back with a one-line reason
+  on findings the spec contradicts, and later rounds do not re-raise
+  a finding with a sound pushback.
+- `code-review` is claude-only: a slot with `agent` set to anything
+  else fails config load. Without `agent` it runs claude even when
+  the task pins codex.
+- `agent` on a slot overrides only that slot. It is resolved per
+  spawn, like the task agent, so a pane never flips agents between
+  ticks.
+- Panes get `SPORE_REVIEWER_MODE`, plus `SPORE_REVIEW_EFFORT` in
+  code-review mode. A consumer that links role bodies one by one
+  must add `reviewer-code-review.md` before enabling the mode; the
+  spawn fails with the missing path otherwise.
+
+spore's own spore.toml runs A = code-review, B = fleet: bug hunt
+first, spec and verification second.
 
 ### Pre-start hook
 

@@ -64,6 +64,11 @@ files only.
 - Never run a bare `cat` with no file argument. It waits on stdin
   and hangs the pane.
 
+A reviewer slot in code-review mode runs `/code-review` without the
+spec, so its findings may lack spec context. When a finding
+contradicts the spec, push back with a one-line reason (spec intends
+it / pre-existing code / out of scope) instead of implementing it.
+
 ## Fix rounds
 
 In a revision round, change only what the reviewers raised. Do not

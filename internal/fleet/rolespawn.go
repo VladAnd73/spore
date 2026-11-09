@@ -27,7 +27,8 @@ type RoleSpawnSpec struct {
 	ReviewerInstance task.ReviewerInstance
 	// RoleBodyPath is the absolute path to the role markdown that
 	// the agent should consume as its first user message.
-	// Defaults to <ProjectRoot>/bootstrap/roles/<Role>.md.
+	// Defaults to <ProjectRoot>/bootstrap/roles/<Role>.md, or
+	// reviewer-code-review.md for a reviewer slot in code-review mode.
 	RoleBodyPath string
 	// Cwd is the working directory for the pane. Defaults to the
 	// task worktree at <ProjectRoot>/.worktrees/<Slug>/ for both
@@ -38,8 +39,8 @@ type RoleSpawnSpec struct {
 	// TasksDir holds <Slug>.md, read for the `agent:` frontmatter.
 	// Defaults to <ProjectRoot>/tasks.
 	TasksDir string
-	// Agent is the command the pane execs. Empty resolves through
-	// roleAgent.
+	// Agent is the command the pane execs. Empty resolves through the
+	// reviewer slot's `agent`, then roleAgent.
 	Agent string
 }
 
@@ -81,15 +82,35 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		return nil, err
 	}
 
+	var slot ReviewerSlot
+	if s.Role == "reviewer" {
+		cfg, err := LoadReviewersConfig(s.ProjectRoot)
+		if err != nil {
+			return nil, err
+		}
+		slot = cfg.Slot(s.ReviewerInstance)
+	}
 	rolePath := s.RoleBodyPath
 	if rolePath == "" {
-		rolePath = filepath.Join(s.ProjectRoot, "bootstrap", "roles", s.Role+".md")
+		body := s.Role + ".md"
+		if slot.Mode == ReviewerModeCodeReview {
+			body = "reviewer-code-review.md"
+		}
+		rolePath = filepath.Join(s.ProjectRoot, "bootstrap", "roles", body)
+		// A missing body would boot a bare agent with no protocol;
+		// only the new body can be absent in a consumer that links
+		// role bodies one by one.
+		if slot.Mode == ReviewerModeCodeReview {
+			if _, err := os.Stat(rolePath); err != nil {
+				return nil, fmt.Errorf("rolespawn: reviewer %s mode %q needs %s: %w", s.ReviewerInstance, ReviewerModeCodeReview, rolePath, err)
+			}
+		}
 	}
 	cwd := s.Cwd
 	if cwd == "" {
 		cwd = filepath.Join(s.ProjectRoot, ".worktrees", s.Slug)
 	}
-	withBody, bare, err := s.invocations()
+	withBody, bare, err := s.invocations(slot)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +136,10 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	}
 	if s.Role == "reviewer" {
 		args = append(args, "-e", "SPORE_REVIEWER_INSTANCE="+string(s.ReviewerInstance))
+		args = append(args, "-e", "SPORE_REVIEWER_MODE="+slot.Mode)
+		if slot.Mode == ReviewerModeCodeReview {
+			args = append(args, "-e", "SPORE_REVIEW_EFFORT="+slot.Effort)
+		}
 	}
 	if s.Role == "engineer" {
 		args = append(args, commitIdentityEnv(s.ProjectRoot)...)
@@ -141,8 +166,9 @@ func commitIdentityEnv(projectRoot string) []string {
 }
 
 // invocations returns the pane's agent command with and without a
-// role body (see agentInvocations).
-func (s RoleSpawnSpec) invocations() (withBody, bare string, err error) {
+// role body (see agentInvocations). A reviewer slot's agent beats
+// roleAgent; a code-review slot without one runs claude.
+func (s RoleSpawnSpec) invocations(slot ReviewerSlot) (withBody, bare string, err error) {
 	if s.Agent != "" {
 		withBody, bare = agentInvocations(s.Agent)
 		return withBody, bare, nil
@@ -155,9 +181,14 @@ func (s RoleSpawnSpec) invocations() (withBody, bare string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	agent, err := roleAgent(s.ProjectRoot, meta)
-	if err != nil {
-		return "", "", err
+	agent := slot.Agent
+	if agent == "" && slot.Mode == ReviewerModeCodeReview {
+		agent = "claude"
+	}
+	if agent == "" {
+		if agent, err = roleAgent(s.ProjectRoot, meta); err != nil {
+			return "", "", err
+		}
 	}
 	if agent != "codex" {
 		withBody, bare = agentInvocations(agent)

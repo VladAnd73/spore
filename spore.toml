@@ -12,6 +12,15 @@ brief = "bootstrap/coordinator/dogfood-role.md"
 # Injected into worker sessions as SPORE_ACCOUNT_TIER at spawn.
 account_tier = "max"
 
+# Reviewer A hunts bugs with Claude Code's /code-review skill; reviewer
+# B keeps the spec-conformance fleet review. See docs/role-loop.md.
+[fleet.reviewers.A]
+mode = "code-review"
+effort = "medium"
+
+[fleet.reviewers.B]
+mode = "fleet"
+
 [align]
 flipped = true
 
