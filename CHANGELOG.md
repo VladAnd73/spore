@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `spore coordinator state-debt` scans `<main repo root>/state.md` by
+  default, the same file `state ls` / `state archive` edit: run from a
+  worktree, it hops to the main repo root. New `--project NAME|PATH`
+  flag picks another project; `--state-file` still overrides both.
+  `SPORE_COORDINATOR_STATE_DIR` no longer redirects `state-debt`.
+  Flags may follow positional arguments, and a stray positional
+  argument is a usage error. Consumer impact: a coordinator whose
+  `state.md` lived only under `SPORE_COORDINATOR_STATE_DIR` now gets
+  the repo-root file scanned; no consumer repo change.
+
 - Role loop on a visible draft PR (`docs/github-app.md`). With
   `pr_flow = "draft"` in the new host-side
   `$XDG_STATE_HOME/spore/<project>/github.toml` (0600),

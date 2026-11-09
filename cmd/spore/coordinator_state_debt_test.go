@@ -22,7 +22,7 @@ func stateDebtRepo(t *testing.T) (root, worktree string) {
 	worktree = filepath.Join(root, ".worktrees", "alpha")
 	for _, args := range [][]string{
 		{"init", "-q", "-b", "main"},
-		{"-c", "user.email=t@example.com", "-c", "user.name=T", "commit", "-q", "--allow-empty", "-m", "init"},
+		{"-c", "user.email=t@example.com", "-c", "user.name=T", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "init"},
 		{"worktree", "add", "-q", "-b", "wt/alpha", worktree},
 	} {
 		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
@@ -76,5 +76,17 @@ func TestCoordinatorStateDebtProjectAndStateFile(t *testing.T) {
 	})
 	if code != 1 || !strings.Contains(stderr, "not a directory") {
 		t.Fatalf("bad --project: code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestCoordinatorStateDebtRejectsPositionalBeforeProject(t *testing.T) {
+	root, _ := stateDebtRepo(t)
+	t.Chdir(t.TempDir())
+
+	code, stdout, stderr := captureHook(t, "", func() int {
+		return runCoordinatorStateDebt([]string{"foo", "--project", root})
+	})
+	if code != 2 || stdout != "" || !strings.Contains(stderr, `unexpected argument "foo"`) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
 }
