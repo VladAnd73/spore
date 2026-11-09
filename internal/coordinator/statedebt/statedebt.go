@@ -8,7 +8,6 @@ package statedebt
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -17,7 +16,6 @@ import (
 const DefaultAgeDays = 14
 
 type Config struct {
-	StateDir  string
 	StateFile string
 	AgeDays   int
 	// Now is the clock used to derive the staleness threshold. Tests
@@ -48,12 +46,6 @@ type ScanResult struct {
 }
 
 func (c Config) defaults() Config {
-	if c.StateDir == "" {
-		c.StateDir = defaultStateDir()
-	}
-	if c.StateFile == "" {
-		c.StateFile = filepath.Join(c.StateDir, "state.md")
-	}
 	if c.AgeDays <= 0 {
 		c.AgeDays = DefaultAgeDays
 	}
@@ -68,19 +60,6 @@ var (
 	dateRE    = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 	harnessRE = regexp.MustCompile(`harness:\s*\S+`)
 )
-
-// defaultStateDir resolves the coordinator state dir from the
-// SPORE_COORDINATOR_STATE_DIR env var, falling back to
-// $HOME/.local/state/spore/coordinator. Consumers (e.g. an external
-// orchestrator that already has its own state tree) export the env
-// var to point spore at their existing layout.
-func defaultStateDir() string {
-	if d := os.Getenv("SPORE_COORDINATOR_STATE_DIR"); d != "" {
-		return d
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state", "spore", "coordinator")
-}
 
 // Scan reads the state file and classifies every H2/H3 block whose
 // heading matches the lesson pattern.
