@@ -22,12 +22,12 @@ import (
 )
 
 const (
-	DefaultSoftCap = 150000
-	DefaultHardCap = 190000
+	DefaultSoftCap = 250000
+	DefaultHardCap = 290000
 
-	// DefaultForceCap is the operator-observed quality cliff; past it
+	// DefaultForceCap is the wrap ceiling on a 1M-context session; past it
 	// the monitor demands an immediate wrap even mid-unit.
-	DefaultForceCap = 200000
+	DefaultForceCap = 300000
 
 	// coordinatorRespawnCommand is the tmux command surfaced to the
 	// coordinator agent on soft/hard cap. respawn-pane -k re-execs the

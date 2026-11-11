@@ -2,6 +2,11 @@
 
 # retire the per-project bash token-monitor in favor of the kernel hook
 
+> Update 2026-11-11: sessions run with a 1M context window, so the
+> max-tier bands moved up 100k. Coordinator: soft 250k, hard 290k,
+> force 300k. Max-tier workers and role panes: soft 250k, wrap 280k,
+> force 300k. Sub-max caps are unchanged.
+
 > Update 2026-07-28: the kernel monitors now run three bands. The old
 > hard/wrap cap means "finish the in-flight unit, start nothing new";
 > a higher force cap (coordinator 200k; worker 195k max / 140k sub)
@@ -93,7 +98,9 @@ Audit on 2026-05-25 grepped every project tree, shell rc,
 Only the bash hooks themselves reference the names, with hardcoded
 defaults `150000 / 190000`.
 
-The kernel's defaults are equivalent in practice. If someone later
+The kernel's defaults now sit 100k higher (`250000 / 290000`, force
+`300000`) to match 1M-context sessions; a project still on the shim
+wraps earlier until it swaps. If someone later
 wants to tune caps per project, adding the env reads is a small
 follow-up; not in scope here.
 

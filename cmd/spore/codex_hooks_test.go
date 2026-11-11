@@ -103,10 +103,10 @@ func TestCoordinatorTokenMonitorCodexStopBlocks(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", state)
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(state, "proj", "inbox"))
-	path := writeCodexRollout(t, 195000)
+	path := writeCodexRollout(t, 295000)
 
 	code, _, stderr := captureHook(t, codexStopPayload(path), func() int { return runCoordinatorTokenMonitor(nil) })
-	assertCodexBlock(t, code, stderr, "context 195000 tokens")
+	assertCodexBlock(t, code, stderr, "context 295000 tokens")
 }
 
 func TestCoordinatorTokenMonitorCodexBelowCap(t *testing.T) {
@@ -127,7 +127,7 @@ func TestWorkerTokenMonitorCodexStopBlocks(t *testing.T) {
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(dir, "workers", "codexw", "inbox"))
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", filepath.Join(dir, "coord"))
 	t.Setenv("SPORE_ACCOUNT_TIER", "max")
-	path := writeCodexRollout(t, 190000)
+	path := writeCodexRollout(t, 290000)
 
 	code, _, stderr := captureHook(t, codexStopPayload(path), func() int { return runWorkerTokenMonitor(nil) })
 	assertCodexBlock(t, code, stderr, "WORKER TOKEN MONITOR")
@@ -137,7 +137,7 @@ func TestTokenMonitorCodexCompressedRolloutSkips(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("SPORE_COORDINATOR_STATE_DIR", state)
 	t.Setenv("SPORE_TASK_INBOX", filepath.Join(state, "proj", "inbox"))
-	path := writeCodexRollout(t, 195000)
+	path := writeCodexRollout(t, 295000)
 	zst := path + ".zst"
 	if err := os.Rename(path, zst); err != nil {
 		t.Fatal(err)

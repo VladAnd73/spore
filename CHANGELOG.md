@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Token monitors: max-tier caps raised 100k for 1M-context sessions.
+  Coordinator soft / hard / force move from 150k / 190k / 200k to
+  250k / 290k / 300k. Max-tier workers and role panes move wrap /
+  force from 180k / 195k to 280k / 300k; the soft warning stays 30k
+  under wrap (now 250k). Sub-max caps (120k wrap / 140k force) are
+  unchanged. Consumer impact: on upgrade, coordinators and max-tier
+  workers in every consumer wrap about 100k later.
+
 - Recipes: `slack` (read-only Slack Web API via a bot token,
   `SLACK_BOT_TOKEN`), ported from PR #38 (MT3-9450). Markdown only.
 
