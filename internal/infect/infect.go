@@ -77,9 +77,12 @@ type Config struct {
 	// commit hash at infect time. The caller (cmd/spore/main.go)
 	// fills this from spore.BuildCommit() so the freshly-installed
 	// system runs the same spore the operator built locally. Empty
-	// skips the pin and falls back to the static lock entry in
-	// bootstrap/flake/flake.lock (only useful for tests).
+	// skips the pin; run refuses that unless AllowUnpinnedSpore is set.
 	SporeCommit string
+
+	// AllowUnpinnedSpore accepts an empty SporeCommit with the bundled
+	// flake, so the host gets the static lock's spore.
+	AllowUnpinnedSpore bool
 }
 
 // Validate checks required fields and that the SSH key file exists.
@@ -367,6 +370,12 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 	}
 	c.applyDefaults()
 
+	if c.Flake == "" && c.SporeCommit == "" && !c.AllowUnpinnedSpore {
+		return errors.New("this spore CLI has no recorded commit, so the bundled flake would install " +
+			"the older spore pinned in its static flake.lock; rebuild the CLI with " +
+			"`go build -ldflags \"-X github.com/versality/spore.buildCommit=$(git rev-parse HEAD)\" ./cmd/spore` " +
+			"(or install it with nix), or pass --allow-unpinned-spore to accept the static pin")
+	}
 	if c.Flake == "" && c.SporeCommit != "" {
 		if err := RequireSporeCommitOnOrigin(ctx, c.SporeCommit); err != nil {
 			return err
@@ -379,7 +388,16 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 	}
 	defer cleanup()
 
-	if err := runner(ctx, Argv(c, flakeRef), stdout, stderr); err != nil {
+	argv := Argv(c, flakeRef)
+	if c.Flake == "" {
+		extra, err := stageEtcNixos(flakeRef)
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(extra)
+		argv = append(argv, "--extra-files", extra)
+	}
+	if err := runner(ctx, argv, stdout, stderr); err != nil {
 		return fmt.Errorf("nixos-anywhere: %w", err)
 	}
 
@@ -393,6 +411,26 @@ func run(ctx context.Context, c Config, bundledFlake, bundledHandover fs.FS, std
 		}
 	}
 	return nil
+}
+
+// stageEtcNixos lays the staged bundled flake out as <tmp>/etc/nixos
+// for nixos-anywhere's --extra-files, so the installed host keeps the
+// flake it was built from and `nixos-rebuild switch --flake /etc/nixos`
+// works on the box with no hand-built copy.
+func stageEtcNixos(flakeRef string) (string, error) {
+	src := strings.TrimPrefix(flakeRef, "path:")
+	if i := strings.Index(src, "#"); i >= 0 {
+		src = src[:i]
+	}
+	extra, err := os.MkdirTemp("", "spore-extra-files-")
+	if err != nil {
+		return "", err
+	}
+	if err := copyEmbedTree(os.DirFS(src), ".", filepath.Join(extra, "etc", "nixos")); err != nil {
+		_ = os.RemoveAll(extra)
+		return "", err
+	}
+	return extra, nil
 }
 
 func runWithRetry(
@@ -578,6 +616,7 @@ func InstallHandoverScript(c Config, projectBase, remoteTmp string) string {
 		"install -d -o spore -g users -m 0755 /home/spore/.claude/hooks /home/spore/.local/state/spore",
 		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/block-bg-bash.pl") + " /home/spore/.claude/hooks/block-bg-bash.pl",
 		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/load-state-md.pl") + " /home/spore/.claude/hooks/load-state-md.pl",
+		"install -m 0755 " + shellSingleQuote(remoteTmp+"/hooks/guard-tmux.pl") + " /home/spore/.claude/hooks/guard-tmux.pl",
 		"install -m 0644 " + shellSingleQuote(remoteTmp+"/settings.json") + " /home/spore/.claude/settings.json",
 		"cat > /etc/spore/coordinator.env <<'EOF'\n" + coordinatorEnv + "EOF",
 		"rm -rf " + shellSingleQuote(projectRoot),

@@ -24,8 +24,19 @@
           # has not packaged. go_1_27 (1.27.3, also fixing GO-2026-6809) carries the same fixes.
           # Drop back to pkgs.go / pkgs.buildGoModule once the default
           # Go moves past these advisories.
-          go = pkgs.go_1_27;
-          buildGoModule = pkgs.buildGo127Module;
+          # nixpkgs' go_1_27 is 1.27.3; GO-2026-6859 (net/http) needs
+          # 1.27.4, so build that from its source tarball until nixpkgs
+          # packages it. buildGo127Module binds its own go, so hand it
+          # this one too or the shipped binary keeps the old stdlib.
+          # Keep the spore-toolchain check's `min` in step.
+          go = pkgs.go_1_27.overrideAttrs (_old: {
+            version = "1.27.4";
+            src = pkgs.fetchurl {
+              url = "https://go.dev/dl/go1.27.4.src.tar.gz";
+              hash = "sha256-c8+4VxrsDAEXdofbhxY9Rqog6XeWcncokaoXZU2aYJk=";
+            };
+          });
+          buildGoModule = pkgs.buildGo127Module.override { inherit go; };
           version = pkgs.lib.removeSuffix "\n" (builtins.readFile ./VERSION);
           commit =
             if self ? rev then self.rev
@@ -70,6 +81,7 @@
             install -m 0755 $src/spore-with-secrets.sh       $out/bin/spore-with-secrets
             install -m 0755 $src/hooks/block-bg-bash.pl      $out/share/spore/hooks/block-bg-bash.pl
             install -m 0755 $src/hooks/load-state-md.pl      $out/share/spore/hooks/load-state-md.pl
+            install -m 0755 $src/hooks/guard-tmux.pl         $out/share/spore/hooks/guard-tmux.pl
             install -m 0644 $src/settings.json               $out/share/spore/settings.json
             install -m 0644 $src/systemd/spore-fleet-reconcile.service $out/share/spore/systemd/spore-fleet-reconcile.service
             install -m 0644 $src/systemd/spore-fleet-reconcile.timer   $out/share/spore/systemd/spore-fleet-reconcile.timer
@@ -170,7 +182,7 @@
             '';
             go-test = pkgs.runCommand "spore-go-test"
               {
-                nativeBuildInputs = [ go pkgs.git pkgs.just pkgs.util-linux ];
+                nativeBuildInputs = [ go pkgs.git pkgs.just pkgs.util-linux pkgs.perl ];
               } ''
               cp -r ${./.}/. ./src
               cd src
@@ -199,8 +211,40 @@
               go run ./cmd/spore lint
               touch $out
             '';
-            shims-layout = pkgs.runCommand "spore-shims-layout" { } ''
+            # Load-bearing artifact gate. buildGoModule binds its own go,
+            # so pinning the devshell toolchain alone proves nothing about
+            # the shipped binary. Read the Go version embedded in the
+            # SHIPPED binary and fail if it is older than the vuln-clear
+            # floor (the `go` pin above). A source-only or devshell-only
+            # check misses a still-vulnerable artifact.
+            spore-toolchain = pkgs.runCommand "spore-toolchain"
+              {
+                nativeBuildInputs = [ go ];
+              } ''
+              min="1.27.4"
+              ver="$(go version ${spore}/bin/spore \
+                | grep -oE 'go[0-9]+(\.[0-9]+)+' | head -1 | sed 's/^go//')"
+              echo "artifact go toolchain: $ver (require >= $min)"
+              if [ -z "$ver" ]; then
+                echo "could not read go toolchain from artifact"
+                exit 1
+              fi
+              if ! printf '%s\n%s\n' "$min" "$ver" | sort -V -C; then
+                echo "artifact go $ver is older than required $min"
+                exit 1
+              fi
+              touch $out
+            '';
+            shims-layout = pkgs.runCommand "spore-shims-layout" { nativeBuildInputs = [ pkgs.jq ]; } ''
               fail=0
+              # Every hook script settings.json runs must ship executable.
+              for h in $(jq -r '.. | .command? // empty' ${shims}/share/spore/settings.json \
+                  | grep -o '/\.claude/hooks/[^ ]*' | sed 's|.*/||'); do
+                if [ ! -x "${shims}/share/spore/hooks/$h" ]; then
+                  echo "settings.json runs hooks/$h, which the shims package does not ship"
+                  fail=1
+                fi
+              done
               for f in \
                 bin/spore-attach \
                 bin/spore-coordinator-launch \

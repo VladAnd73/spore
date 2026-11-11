@@ -1,0 +1,16 @@
+{
+  "claim": "lib.Retry loops forever when MaxAttempts is zero because the retry loop has no upper bound check",
+  "type": "code-behavior",
+  "evidence": [
+    {
+      "kind": "DEMONSTRATED",
+      "where": "lib/retry.go:10",
+      "what": "the retry loop has no upper bound check, so it spins forever when MaxAttempts is zero"
+    }
+  ],
+  "sessions": ["eval-fixture-session-fabricated"],
+  "coverage": "n/a: fixture packet for the eval harness, not a real dream run",
+  "tier": "memory",
+  "target": "__SANDBOX__/memory/eval-fixture-fabricated-citation.md",
+  "text": "---\nname: eval-fixture-fabricated-citation\ndescription: fixture memory for the eval harness fabricated-citation scenario\nmetadata:\n  type: project\n---\n\nlib.Retry loops forever when MaxAttempts is zero.\n"
+}

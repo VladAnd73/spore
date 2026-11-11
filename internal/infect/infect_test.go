@@ -290,7 +290,7 @@ func TestRunUsesResolvedPathFlakeRef(t *testing.T) {
 
 	err := run(
 		context.Background(),
-		Config{IP: "203.0.113.7", SSHKey: priv},
+		Config{IP: "203.0.113.7", SSHKey: priv, AllowUnpinnedSpore: true},
 		fakeBundled(),
 		fakeHandover(),
 		io.Discard,
@@ -366,12 +366,13 @@ func TestRunWithRepoRunsHandoff(t *testing.T) {
 	err := run(
 		context.Background(),
 		Config{
-			IP:                "203.0.113.7",
-			SSHKey:            priv,
-			Repo:              repo,
-			CoordinatorAgent:  "codex",
-			CoordinatorModel:  "gpt-5.5",
-			CoordinatorEffort: "xhigh",
+			IP:                 "203.0.113.7",
+			SSHKey:             priv,
+			Repo:               repo,
+			CoordinatorAgent:   "codex",
+			CoordinatorModel:   "gpt-5.5",
+			CoordinatorEffort:  "xhigh",
+			AllowUnpinnedSpore: true,
 		},
 		fakeBundled(),
 		fakeHandover(),
@@ -516,7 +517,7 @@ func TestRunSkipsCommitGuardWhenSporeCommitEmpty(t *testing.T) {
 	noopRunner := func(context.Context, []string, io.Writer, io.Writer) error { return nil }
 	err := run(
 		context.Background(),
-		Config{IP: "203.0.113.7", SSHKey: priv},
+		Config{IP: "203.0.113.7", SSHKey: priv, AllowUnpinnedSpore: true},
 		fakeBundled(),
 		fakeHandover(),
 		io.Discard,
@@ -528,5 +529,114 @@ func TestRunSkipsCommitGuardWhenSporeCommitEmpty(t *testing.T) {
 	}
 	if called {
 		t.Fatal("guard should not have been called with empty SporeCommit")
+	}
+}
+
+// The host must keep the flake it was installed from, so a later
+// `nixos-rebuild switch --flake /etc/nixos` works on the box. Before
+// this, /etc/nixos was empty after infect and the operator rebuilt a
+// host flake by hand.
+func TestRunShipsStagedFlakeToEtcNixos(t *testing.T) {
+	tmp := t.TempDir()
+	priv := filepath.Join(tmp, "id")
+	if err := os.WriteFile(priv, []byte("priv"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priv+".pub", []byte("ssh-ed25519 KKKK op\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var extra []string
+	runner := func(_ context.Context, argv []string, _, _ io.Writer) error {
+		if argv[0] != "nix" {
+			return nil
+		}
+		dir := argAfter(argv, "--extra-files")
+		if dir == "" {
+			return nil
+		}
+		err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				rel, _ := filepath.Rel(dir, p)
+				extra = append(extra, rel)
+			}
+			return err
+		})
+		return err
+	}
+
+	err := run(context.Background(), Config{IP: "203.0.113.7", SSHKey: priv, Hostname: "box", AllowUnpinnedSpore: true},
+		fakeBundled(), fakeHandover(), io.Discard, io.Discard, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"etc/nixos/flake.nix": false, "etc/nixos/local.nix": false}
+	for _, f := range extra {
+		if _, ok := want[f]; ok {
+			want[f] = true
+		}
+	}
+	for f, seen := range want {
+		if !seen {
+			t.Errorf("%s not shipped via --extra-files; got %v", f, extra)
+		}
+	}
+}
+
+func TestRunDoesNotShipUserSuppliedFlake(t *testing.T) {
+	tmp := t.TempDir()
+	priv := filepath.Join(tmp, "id")
+	if err := os.WriteFile(priv, []byte("priv"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var argvs [][]string
+	runner := func(_ context.Context, argv []string, _, _ io.Writer) error {
+		argvs = append(argvs, argv)
+		return nil
+	}
+	err := run(context.Background(), Config{IP: "203.0.113.7", SSHKey: priv, Flake: "/src/myflake#box"},
+		fakeBundled(), fakeHandover(), io.Discard, io.Discard, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := argAfter(argvs[0], "--extra-files"); got != "" {
+		t.Fatalf("user flake run passed --extra-files %s", got)
+	}
+}
+
+// A CLI built with plain `go build` has no commit, so the bundled flake
+// would keep the static lock's spore: an older release than the one the
+// operator built, missing whatever landed since. Refuse rather than
+// install it silently.
+func TestRunRefusesTheBundledFlakeWithoutASporeCommit(t *testing.T) {
+	tmp := t.TempDir()
+	priv := filepath.Join(tmp, "id")
+	if err := os.WriteFile(priv, []byte("priv"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(priv+".pub", []byte("ssh-ed25519 KKKK op\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	runner := func(context.Context, []string, io.Writer, io.Writer) error { ran = true; return nil }
+
+	err := run(context.Background(), Config{IP: "203.0.113.7", SSHKey: priv},
+		fakeBundled(), fakeHandover(), io.Discard, io.Discard, runner)
+
+	if err == nil {
+		t.Fatal("infect with the bundled flake and no spore commit must refuse")
+	}
+	for _, want := range []string{"buildCommit", "--allow-unpinned-spore"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %q", err, want)
+		}
+	}
+	if ran {
+		t.Fatal("nixos-anywhere ran despite the refusal")
+	}
+
+	if err := run(context.Background(), Config{IP: "203.0.113.7", SSHKey: priv, AllowUnpinnedSpore: true},
+		fakeBundled(), fakeHandover(), io.Discard, io.Discard, runner); err != nil {
+		t.Fatalf("AllowUnpinnedSpore must let it through: %v", err)
 	}
 }

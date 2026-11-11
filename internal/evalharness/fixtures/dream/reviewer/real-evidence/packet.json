@@ -1,0 +1,16 @@
+{
+  "claim": "lib.MaxAttempts is defined as the constant 3",
+  "type": "code-behavior",
+  "evidence": [
+    {
+      "kind": "DEMONSTRATED",
+      "where": "lib/retry.go:4",
+      "what": "the line reads const MaxAttempts = 3"
+    }
+  ],
+  "sessions": ["eval-fixture-session-real"],
+  "coverage": "n/a: fixture packet for the eval harness, not a real dream run",
+  "tier": "memory",
+  "target": "__SANDBOX__/memory/eval-fixture-real-evidence.md",
+  "text": "---\nname: eval-fixture-real-evidence\ndescription: fixture memory for the eval harness real-evidence scenario\nmetadata:\n  type: project\n---\n\nlib.MaxAttempts is defined as the constant 3.\n"
+}

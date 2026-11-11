@@ -17,6 +17,7 @@ spore infect <ip> --ssh-key <path> [--repo <local-path>]
                                      [--coordinator-effort <effort>]
                                      [--flake <path-or-attr>]
                                      [--hostname <name>] [--user <user>]
+                                     [--allow-unpinned-spore]
 ```
 
 ### Minimal example
@@ -118,6 +119,7 @@ spore infect 203.0.113.7 \
 | `--flake` | no | bundled | A flake path or full flake-ref. With `#attr` is taken verbatim; without `#attr` the bundled attr name `spore-bootstrap` is appended. When omitted the bundled flake at `bootstrap/flake/` is staged into a tempdir. |
 | `--hostname` | no | `nixos` | Written into the staged `local.nix` as `networking.hostName`. Ignored when `--flake` is supplied (custom flakes own their own hostname). |
 | `--user` | no | `root` | SSH user nixos-anywhere connects as. Non-root users must have password-less sudo on the target. |
+| `--allow-unpinned-spore` | no | off | With the bundled flake, infect pins the host's spore to this CLI's build commit. A CLI built by plain `go build` has none, and infect refuses rather than install the older spore in the bundled `flake.lock`. Build with `go build -ldflags "-X github.com/versality/spore.buildCommit=$(git rev-parse HEAD)" ./cmd/spore` (or use the Nix-built CLI), or pass this flag to accept the static pin. |
 
 ## Prerequisites
 
@@ -138,8 +140,10 @@ single-disk GPT layout (1M BIOS-boot, 512M ESP at `/boot`, ext4 at
 `/`). nixpkgs tracks `nixos-unstable`, disko follows nixpkgs.
 
 The hostname and authorized-keys list are written into a generated
-`local.nix` that lives only inside the temp staging directory; the
-spore tree itself never holds operator-specific state. See
+`local.nix` inside the temp staging directory; the spore tree itself
+never holds operator-specific state. The staged flake is copied to the
+host's `/etc/nixos`, so rebuilds on the box use
+`nixos-rebuild switch --flake /etc/nixos`. See
 `bootstrap/flake/README.md` for the full shape and the override
 guidance.
 

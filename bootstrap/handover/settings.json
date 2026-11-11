@@ -22,6 +22,11 @@
             "type": "command",
             "command": "/home/spore/.claude/hooks/block-bg-bash.pl",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "/home/spore/.claude/hooks/guard-tmux.pl",
+            "timeout": 5
           }
         ]
       }

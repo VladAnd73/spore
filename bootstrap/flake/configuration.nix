@@ -4,8 +4,9 @@ let
   # Host project list. Written by `spore infect`'s Stage() at infect
   # time with a single entry derived from the operator's --repo, or
   # left as the bundled `{ }` default when infect runs without a repo.
-  # Edit-in-place post-install to add more repos; one-line append plus
-  # `sudo nixos-rebuild switch --flake /etc/nixos#spore-bootstrap`.
+  # `spore infect` ships this flake to /etc/nixos. To add a project,
+  # append a line there (`spore project new` prints it), then as root:
+  # `nixos-rebuild switch --flake /etc/nixos`.
   sporeProjects = import ./spore-projects.nix;
 in
 {
@@ -14,6 +15,9 @@ in
     (modulesPath + "/profiles/qemu-guest.nix")
     ./disk-config.nix
   ] ++ lib.optional (builtins.pathExists ./local.nix) ./local.nix;
+
+  # Rebuilds on the box and agents both run flake commands.
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   nixpkgs.config.allowUnfreePredicate =
     pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
@@ -32,16 +36,13 @@ in
 
   # Operator-facing account. No shell prompt, no sudo, no wheel. SSH
   # in as spore -> the login shell (spore-attach) attaches you to a
-  # tmux session and exits when you detach.
-  #
-  # Two landing modes, picked by the per-key authorized_keys command:
-  # - bare key (no command=): primary-operator path. Attaches to the
-  #   singleton coordinator session; falls back to a default pilot
-  #   session if the coordinator is down (so SSH never bounces).
-  # - command="/usr/local/bin/spore-attach pilot <name>": gives that
-  #   key its own private session at spore/pilot/<name>. Use this for
-  #   secondary pilots so they neither share a pane with the
-  #   coordinator nor with each other.
+  # tmux session and exits when you detach:
+  # - `ssh -t spore@<host>`: the coordinator when exactly one runs,
+  #   else the default pilot shell with the coordinators listed.
+  # - `ssh -t spore@<host> <project>`: that project's coordinator.
+  # - `ssh -t spore@<host> coord`: a menu of running coordinators.
+  # - command="/usr/local/bin/spore-attach pilot <name>" on a key in
+  #   authorized_keys: that key always lands in spore/pilot/<name>.
   #
   # The login shell is the shims package's spore-attach, the same
   # script services.spore-fleet links into /usr/local/bin, so the
@@ -62,6 +63,7 @@ in
   ] ++ (with pkgs; [
     claude-code
     codex
+    gh
     git
     rsync
     curl

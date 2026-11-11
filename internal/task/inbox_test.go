@@ -13,6 +13,7 @@ func TestTellWritesJSON(t *testing.T) {
 	t.Chdir(dir)
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
+	writeTaskFile(t, dir, "foo", "active")
 
 	if err := Tell("foo", "hello"); err != nil {
 		t.Fatalf("Tell: %v", err)

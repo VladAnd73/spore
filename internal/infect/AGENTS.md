@@ -25,20 +25,20 @@ whole job.
 - `spore`: declared by the bundled flake. Login shell is
   `/usr/local/bin/spore-attach` (in `bootstrap/handover/`); no sudo,
   no wheel, no shell prompt. Tmux sessions live in spore's tmux
-  server, not root's. spore-attach has two landing modes:
-  - bare invocation (the primary operator key, no `command=` in
-    authorized_keys): attaches to the singleton coordinator. If the
-    coordinator is down, falls back to `spore/pilot/default` so the
-    SSH does not bounce, and prints the recovery line. This is what
-    the local `coord` window connects to: `ssh -t spore@<ip>` is
-    enough.
+  server, not root's. spore-attach landing modes
+  (`bootstrap/handover/spore-attach.sh` is the one copy; the
+  bundled flake's login shell wraps it):
+  - `ssh -t spore@<ip>`: attaches the coordinator when exactly one
+    runs. With none or several it lands in `spore/pilot/default`
+    and lists the coordinators; it never exits non-zero for that.
+    This is what the local `coord` window connects to right after
+    infect, when only one project exists.
+  - `ssh -t spore@<ip> <project>`: attaches
+    `spore/<project>/coordinator`. `coord` shows a menu instead.
   - `spore-attach pilot <name>` (secondary pilots, wired via a
     per-key `command=` in `/home/spore/.ssh/authorized_keys`):
     attaches to a private session `spore/pilot/<name>`. Use one
-    name per pilot so they do not share a pane. From a pilot pane
-    they can peek at the coordinator with
-    `tmux attach -d -t spore/<project>/coordinator` (take over) or
-    `tmux attach -r -t ...` (read-only).
+    name per pilot so they do not share a pane.
 
 ## defaults the agent applies without asking
 
@@ -95,10 +95,12 @@ Only when an action is operator-bound or genuinely ambiguous:
 
 1. `ssh-keygen -R <ip>` to clear stale host keys.
 2. Launch infect in a tmux window so the operator can watch:
-   `tmux new-window -d -n infect "go run ./cmd/spore infect <ip>
+   `tmux new-window -d -n infect "nix run . -- infect <ip>
    --ssh-key ~/.ssh/id_ed25519 --repo <src> --coordinator-agent
    claude --coordinator-model sonnet | tee /tmp/spore-infect.log"`.
    Wait via `Monitor` until `=== EXIT ===` lands.
+   `nix run .` records the build commit; a plain `go run` or
+   `go build` does not, and infect refuses without one.
 3. `spore infect --repo` copies the current binary to
    `/usr/local/bin/spore` (via the bundled flake's nix activation),
    rsyncs `<src>` to `/home/spore/<basename>` with `.git/` included
@@ -110,7 +112,9 @@ Only when an action is operator-bound or genuinely ambiguous:
    `services.spore-fleet` with `projects = import ./spore-projects.nix`),
    so they come up at activation; Stage() writes
    `spore-projects.nix` with the single `<basename>` entry before
-   nixos-anywhere reads the flake.
+   nixos-anywhere reads the flake. The staged flake lands in the
+   host's `/etc/nixos` via `--extra-files`; later projects are added
+   there and applied with `nixos-rebuild switch --flake /etc/nixos`.
 4. Locally, open the handover window:
    `tmux new-window -d -n coord "ssh -t -o
    ServerAliveInterval=30 spore@<ip>"`. The forced login shell

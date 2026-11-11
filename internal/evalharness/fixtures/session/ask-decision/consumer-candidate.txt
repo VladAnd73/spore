@@ -1,0 +1,26 @@
+# Fixture consumer for the ask-via-tool session scenario ONLY. Not a
+# real spore consumer file: it is the real rules/consumers/spore.txt
+# list (verified by TestCandidateConsumerIsRealSporeConsumerPlusAskViaTool)
+# plus one added line, core/ask-via-tool, wired in as always-on. This
+# simulates the audit's proposed fix without editing the real
+# rules/consumers/spore.txt.
+core/header
+core/roles
+core/source-map
+core/tier-policy
+core/role
+core/writing-style
+core/tldr-first
+core/diagnosis-before-proposal
+core/commits
+core/version-bump-by-change-size
+core/search-kagi
+core/fetch-files
+core/validate-before-report
+core/validation
+core/fix-vulns-at-root
+core/code-comments
+core/tmux-api
+core/worker-etiquette
+core/ask-via-tool
+?align core/alignment-mode

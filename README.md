@@ -7,371 +7,259 @@
 [![CI](https://github.com/versality/spore/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/versality/spore/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/versality/spore/branch/main/graph/badge.svg)](https://codecov.io/gh/versality/spore)
 
-Spore is a small, local harness for LLM coding agents. It plants rules,
-task files, hooks, validation gates, and tmux worker sessions into an
-existing repo so agents can work on explicit tasks without turning the
-project into a SaaS workflow.
+A local harness for LLM coding agents. Each project gets one
+coordinator agent and a fleet of worker agents. Every task is a
+`tasks/<slug>.md` file, gets its own git worktree and tmux session, and
+closes only with evidence. Status: beta.
 
-**Status:** beta. The kernel, bootstrap stage gates, fleet coordinator,
-budget tracking, and evidence-gated task closes are in place and are
-being dogfooded on live projects.
+Tmux session names:
 
-## What It Feels Like
+| Session                       | What                           |
+|-------------------------------|--------------------------------|
+| `spore/<project>/coordinator` | the project's coordinator      |
+| `spore/<project>/<slug>`      | one worker per active task     |
+| `spore/pilot/<name>`          | an operator shell on the host  |
 
-Spore keeps agent work inside the repo and tools you already trust. It
-adds just enough structure for agents to take real tasks without hiding
-their work in chat:
+In commands below, `$IP`, `$HOST`, `$NAME`, `$PROJECT` and `$SLUG` are
+placeholders: set them in your shell or replace them.
 
-- tasks are explicit work orders, not remembered prompt context;
-- each active task gets its own git worktree and tmux session;
-- a coordinator starts workers, watches progress, and reaps stale
-  sessions;
-- hooks and lints stop obvious bad moves before task close;
-- done requires evidence: commits, changed files, tests, or a written
-  reason a proof does not apply.
+## Requirements
 
-The result is closer to a disciplined local workshop than a hosted
-agent platform. You can attach to tmux, read the task file, inspect the
-branch, kill the fleet, or run the same checks yourself.
+Workstation (runs `spore infect`):
 
-## Operator Flow
-
-Install the CLI with Nix:
+- Nix with flakes enabled, `ssh`, `ssh-keygen`.
+- The `spore` CLI. Either of:
 
 ```sh
 nix profile install github:versality/spore
+# or from a checkout, Go 1.25+; the commit lets infect pin the host's spore
+go build -ldflags "-X github.com/versality/spore.buildCommit=$(git rev-parse HEAD)" \
+  -o ~/.local/bin/spore ./cmd/spore
 ```
 
-Or build from a checkout with Go 1.25+:
+A CLI built without the commit makes `spore infect` refuse, because the
+host would get the older spore pinned in the bundled `flake.lock`.
+
+Target host:
+
+- A fresh x86_64 VM, root over SSH by key, able to kexec, disk at
+  `/dev/sda`. `spore infect` wipes it.
+
+## Install on a fresh host
 
 ```sh
-go build -o ~/.local/bin/spore ./cmd/spore
+ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub  # .pub must exist
+spore infect $IP \
+  --ssh-key ~/.ssh/id_ed25519 \
+  --hostname $HOST \
+  --repo /path/to/project \
+  --coordinator-agent claude
+ssh -t spore@$IP
 ```
 
-Adopt an existing project:
+What you get:
+
+- NixOS from `bootstrap/flake/`. The same flake is left on the host at
+  `/etc/nixos`, with the config exposed as `#<host>` and
+  `#spore-bootstrap`.
+- The project at `/home/spore/<basename>`, registered in
+  `/etc/nixos/spore-projects.nix`, with its coordinator running.
+- User `spore`: login shell is `spore-attach` (no plain shell prompt,
+  no sudo). Use `root` for admin.
+
+First login on the box, as `spore`:
 
 ```sh
-cd /path/to/project
-spore bootstrap
+git config --global user.name "<name>"       # the host has no git identity;
+git config --global user.email "<email>"     # commits fail without it
+echo "<token>" | gh auth login --with-token  # browser login fails: no xdg-open
 ```
 
-`spore bootstrap` is re-entrant. Each run checks what it can prove,
-records the completed gates, then prints the first blocker that still
-needs operator or repo work. In plain terms, bootstrap moves through:
+Log the agent in once: attach the coordinator and finish the `claude`
+login in its pane.
 
-1. map the repo and collect project facts;
-2. find the test and validation commands;
-3. document how credentials are supplied without storing secrets;
-4. confirm the README matches the real workflow;
-5. run validation and confirm the pilot/agent rules are aligned;
-6. enable the worker fleet.
+Own NixOS config instead of the bundled one: `--flake ./nixos#<attr>`.
+That flake is not copied to `/etc/nixos`. Full flags:
+[docs/infect.md](docs/infect.md).
 
-The CLI still uses short stage ids such as `repo-mapped`,
-`validation-green`, and `worker-fleet-ready` so agents can resume the
-same bootstrap without guessing.
+## Add a project
 
-When the project is worker-ready, create work and start the fleet:
+On the host, as `spore` (from a pilot shell):
 
 ```sh
-spore task new "first task"
+spore project new /home/spore/$NAME
+```
+
+It runs `git init`, installs the skills under `.claude/skills/`, writes
+`bootstrap/coordinator/role.md`, and adds `.worktrees/` to
+`.gitignore`. It keeps files that already exist. It prints the step
+that registers the project with the host; as root:
+
+1. Add the project's line inside the `{ }` of
+   `/etc/nixos/spore-projects.nix`. With two projects the file reads:
+
+   ```nix
+   {
+     first.path = "/home/spore/first";
+     "<name>".path = "/home/spore/<name>";
+   }
+   ```
+
+2. Apply it:
+
+```sh
+nixos-rebuild switch --flake /etc/nixos
+```
+
+`switch` drains the running workers of every project, then kills the
+ones still running at the timeout. Run `spore fleet status` as the
+spore user first, and switch when the fleet is idle.
+
+The host's reconciler then starts `spore/<name>/coordinator`. To start
+it before registering:
+
+```sh
+cd /home/spore/$NAME && spore coordinator start
+```
+
+Once the project has a build file (`go.mod`, `package.json`,
+`flake.nix`, ...), write its agent instructions:
+
+```sh
+cd /home/spore/$NAME && spore bootstrap
+```
+
+`spore bootstrap` is re-entrant: each run records the stages it can
+prove and prints the first blocker.
+
+The first agent launch in a new folder shows Claude Code's folder-trust
+prompt. Attach the coordinator and accept it.
+
+## Attach
+
+```sh
+ssh -t spore@$HOST              # the only coordinator, else the pilot shell plus a list
+ssh -t spore@$HOST $PROJECT     # that project's coordinator
+ssh -t spore@$HOST coord        # menu of running coordinators
+ssh -t spore@$HOST pilot $NAME  # private shell at spore/pilot/$NAME
+```
+
+- Detach with `Ctrl-b d`; that ends the SSH session.
+- In a pilot shell, `Ctrl-b s` switches sessions.
+- A second operator with a fixed landing: add to
+  `/home/spore/.ssh/authorized_keys`:
+  `command="/usr/local/bin/spore-attach pilot <name>",no-port-forwarding ssh-ed25519 AAAA...`
+
+## Day to day
+
+Run inside the project directory.
+
+```sh
+spore task new "<title>" --body "<brief>"  # draft task
+spore task start $SLUG                     # worktree + tmux session + agent
+spore task ls                              # everything not done
+spore task tell $SLUG "<message>"          # message a worker (or: coordinator)
+spore task verify $SLUG                    # evidence verdict
+spore task merge $SLUG                     # merge wt/<slug>; refuses on red just check
+spore task done $SLUG                      # close, kill session, remove worktree
+
+spore coordinator status                   # is the coordinator alive
+spore coordinator restart
+
+spore fleet status                         # kill switch + live workers
+spore fleet disable                        # stop spawning (host-wide)
 spore fleet enable
-spore fleet reconcile
+spore fleet reconcile                      # one reconcile pass now
+
+spore lint                                 # drift, file-size, comment-noise, em-dash
 ```
 
-Worker sessions live under tmux names like
-`spore/<project>/<slug>`. The coordinator session is
-`spore/<project>/coordinator`.
+Optional:
 
-Fresh-server install uses nixos-anywhere:
+- `spore dream`: nightly, digest this machine's session transcripts into
+  reviewed memory entries. Off until `[dreams] enabled = true`; see
+  [nightly-dreaming-deploy.md](docs/todo/nightly-dreaming-deploy.md).
+- `spore eval list` / `spore eval run <scenario>`: run a sandboxed agent
+  against a scenario to measure a prompt change. Spends tokens.
+
+## Rebuild and update
+
+On the host, as root:
 
 ```sh
-spore infect 203.0.113.7 --ssh-key ~/.ssh/id_ed25519
+cd /etc/nixos
+nix flake update spore                                        # take the newest spore
+nixos-rebuild switch --flake /etc/nixos                       # switch, not boot
+readlink -f /run/current-system /nix/var/nix/profiles/system  # must match
 ```
 
-`spore infect` is destructive: it wipes the target host and installs
-NixOS over SSH. Point it only at a freshly provisioned Linux VM that is
-root-reachable over SSH, can kexec, and has no data worth keeping. The
-machine running spore needs Nix with flakes enabled plus `ssh` and
-`ssh-keygen` on PATH.
+`switch` drains running workers first (see "Add a project").
+`nixos-rebuild boot` (or `switch-to-configuration boot`) avoids that but
+only takes effect after a reboot: the profile moves on, the running
+system does not. If the last check prints two different paths, run the
+`switch` again.
 
-The `--ssh-key` value is the private key nixos-anywhere uses to log
-into the target during install. Its `.pub` sibling must exist because
-spore writes that public key into the installed system for post-install
-root SSH access:
+### Hosts installed before the shared login shell
 
-```sh
-ssh-keygen -y -f ~/.ssh/id_ed25519 > ~/.ssh/id_ed25519.pub
+The host flake (`/etc/nixos`, or your own copy) is not part of the
+`spore` input, so a spore update does not change it. If its
+`configuration.nix` defines `sporeAttach` with an inline script, the
+spore user keeps the old login: it exits when several coordinators run,
+and tmux servers it starts take it as their default shell. Drop the
+inline script, point the login shell at the shipped one, then switch:
+
+```nix
+users.users.spore.shell = "${sporePkgs.shims}/bin/spore-attach";
 ```
 
-By default spore stages the bundled minimal flake from
-`bootstrap/flake/`. Pass `--flake <path-or-attr>` when the target needs
-your own NixOS config, disk layout, packages, or host settings:
+Until then, keep `set -g default-shell <path to bash>` in the spore
+user's `~/.tmux.conf`.
 
-```sh
-spore infect 203.0.113.7 \
-  --ssh-key ~/.ssh/id_ed25519 \
-  --flake ./nixos#web-1
-```
+## Troubleshooting
 
-The kickstart path is one command that installs NixOS, copies the
-current repo to the box, and starts the coordinator handoff surface
-under the `spore` user. Choose the initial coordinator provider and
-model explicitly:
+| Symptom | Check | Fix |
+|---|---|---|
+| `ssh spore@<host>` drops you right away | `ssh root@<host> runuser -u spore -- tmux ls` | update spore and rebuild; old `spore-attach` exits when several coordinators run |
+| Coordinator `died on spawn`, though the agent is on PATH | `tmux show -g default-shell` | if it names `spore-attach`: `tmux set -g default-shell "$(command -v bash)"`, then `spore fleet reconcile` |
+| Change not live after a rebuild | `readlink -f /run/current-system /nix/var/nix/profiles/system` | `nixos-rebuild switch --flake /etc/nixos` |
+| `experimental Nix feature 'nix-command' is disabled` | `nix config show experimental-features` | rebuild with the current bundled flake, or pass `--extra-experimental-features 'nix-command flakes'` |
+| `nixos-rebuild --flake` cannot find the config | `nix eval /etc/nixos#nixosConfigurations --apply builtins.attrNames` | use `#spore-bootstrap`, or set `networking.hostName` in `local.nix` |
+| New project has no coordinator | `grep <name> /etc/nixos/spore-projects.nix` | add it there and rebuild, or `spore coordinator start` in the project |
+| `unable to auto-detect email address` | `git config --global user.email` | set `user.name` and `user.email` |
+| `gh` missing or not logged in | `gh auth status` | rebuild (the flake installs `gh`), then `gh auth login --with-token` |
+| Agent stuck on a trust or login prompt | `ssh -t spore@<host> <project>` | answer it in the pane |
+| Workers not spawning | `spore fleet status` | `spore fleet enable && spore fleet reconcile` |
 
-```sh
-spore infect 203.0.113.7 \
-  --ssh-key ~/.ssh/id_ed25519 \
-  --repo /path/to/project \
-  --coordinator-agent claude \
-  --coordinator-model sonnet
-
-ssh -t spore@203.0.113.7
-```
-
-For a Codex-backed coordinator, use the Codex provider, model, and
-reasoning effort instead:
-
-```sh
-spore infect 203.0.113.7 \
-  --ssh-key ~/.ssh/id_ed25519 \
-  --repo /path/to/project \
-  --coordinator-agent codex \
-  --coordinator-model gpt-5.5 \
-  --coordinator-effort high
-```
-
-If the selected agent needs interactive login, `ssh -t spore@<ip>`
-attaches to the coordinator tmux pane and leaves the agent login chooser
-visible.
-
-See [docs/infect.md](docs/infect.md) for full flag behavior and
-failure hints.
-
-## Matter Plugins
-
-Matter plugins pull work from external sources (Linear, GitHub
-Issues, ad-hoc adapters) and mirror local task transitions back to
-them. Configure one or more in `spore.toml` under
-`[matter.<name>]`, or via `SPORE_MATTER_<NAME>__<KEY>` env vars
-when the NixOS module is the source of truth (the loader merges
-both).
-
-The fleet reconciler runs `Sync` against every enabled matter
-before it enumerates tasks, so new upstream tickets land as
-`tasks/<slug>.md` files automatically on the next pass. When a
-task carrying matter metadata flips to done, an `OnDone` hook
-mirrors the close back upstream; a fallback sweep on the next
-`Sync` covers misses (reconciler off, adapter down, task edited
-out of band).
-
-Tasks created by a matter carry three frontmatter keys: `matter`
-(adapter name), `matter_id` (upstream id), and `matter_url`
-(deep link, optional).
-
-### Linear
-
-The bundled `linear` adapter polls a configured team for issues in
-a ready state, projects each one to `tasks/<slug>.md`, pushes the
-issue to in-progress, and mirrors `status: done` flips back to a
-configured done state.
-
-```toml
-# spore.toml
-[matter.linear]
-enabled = true
-team = "MAR"                       # team key, required
-ready_state = "Ready"              # default
-in_progress_state = "In Progress"  # default
-done_state = "Done"                # default
-api_key_env = "LINEAR_API_KEY"
-# or, when the NixOS module supplies the secret via systemd:
-# api_key_file = "linear-api-key"
-```
-
-For NixOS deployments, configure the same shape under
-`services.spore-fleet.matters.linear`. Secrets ride systemd
-`LoadCredential` and never enter Nix evaluation or `/nix/store`.
-See [nixosModules/spore-fleet.nix](nixosModules/spore-fleet.nix).
-
-## Worker Mix
-
-The fleet reconciler picks a worker agent (Claude, Codex, or any
-binary on PATH) for each task it spawns. Default behaviour without
-`spore.toml` is "all Claude". To run a mix, declare a default,
-optionally a ratio, and optionally rules keyed on a task's
-`complexity:` extra:
-
-```toml
-# spore.toml
-[fleet.workers]
-default = "claude"
-
-[fleet.workers.ratio]
-claude = 70
-codex = 30
-
-[fleet.workers.rules]
-mechanical = "codex"
-deep = "claude"
-```
-
-Selection precedence:
-
-1. An explicit `agent:` already in the task frontmatter wins.
-2. A rule whose key matches the task's `complexity:` value wins next.
-3. Otherwise the ratio balancer picks the agent whose currently
-   spawned share is furthest below its target share, so the active
-   fleet converges on the configured split.
-4. Otherwise `default` (or `claude` when omitted) is used.
-
-The picked agent is written back into the task's frontmatter
-`agent:` when reconcile spawns the session, so downstream tools see
-the same answer the launcher used. Coordinator agent selection lives
-under the separate `[coordinator]` section and is never subject to
-the worker ratio.
-
-A project without `spore.toml` (or an operator who must not edit it)
-sets the worker default host-side instead:
-
-```
-spore fleet worker-agent            # print the effective default and its source
-spore fleet worker-agent codex      # write it to <state dir>/workers.toml
-spore fleet worker-agent --clear    # drop the host-side key
-```
-
-`<state dir>` is `$XDG_STATE_HOME/spore/<project>`. The file takes the
-same `[fleet.workers]` tables; a key or table set there wins over
-`spore.toml` (a ratio or rules table replaces the whole map). Role-loop
-panes (`loop: role`) take the task's `agent:`, else this effective
-`default`, else `claude`; they never use ratio or rules, so one task's
-engineer and reviewers stay on one agent. `SPORE_AGENT_BINARY` is the
-claude worker launcher and is ignored for `agent: codex`, which starts
-codex on the brief directly.
-
-## Editor
-
-The coordinator can connect to the operator's VS Code window (Claude
-Code's `/ide`) so the editor selection and diagnostics reach it. Off
-by default; opt in per project:
-
-```toml
-# spore.toml
-[editor]
-auto_connect_ide = true
-```
-
-When on, the kernel spawns the coordinator session with
-`CLAUDE_CODE_AUTO_CONNECT_IDE=1`. Claude Code then connects to the
-window whose workspace folders contain the project root; with no such
-window it stays unconnected. An operator-set
-`CLAUDE_CODE_AUTO_CONNECT_IDE` wins over the knob. Workers and role
-panes never get it: one Claude Code instance holds a window at a time.
-See [docs/todo/editor-integration.md](docs/todo/editor-integration.md).
-
-## Graceful Deployment
-
-When the NixOS module is enabled with `gracefulDeploy.enable =
-true` (the default), pre and post activation hooks drain active
-workers around `nixos-rebuild switch` and colmena deploys:
-
-- pre-activation disables the kill-switch, drops a wrap-up
-  message into every active worker's inbox, waits up to
-  `gracefulDeploy.timeout` seconds for them to flush, then kills
-  any holdouts;
-- post-activation re-enables the kill-switch so the next
-  reconcile pass repopulates the fleet.
-
-The `preScript` and `postScript` paths are also exposed as
-read-only options so a colmena `deployment.preActivation` /
-`postActivation` hook can drive the same drain remotely. Set
-`gracefulDeploy.enable = false` for one-off worker tiers whose
-tasks should never see a wrap-up signal.
-
-## Developer Entry
-
-Use the flake dev shell for the toolchain used by CI:
+## Develop spore
 
 ```sh
 nix develop
-just check
+just check  # fmt, vet, golangci-lint, spore lint, go test, govulncheck, nix flake check
 just build
 ```
 
-`just check` runs formatting checks, Go vet, golangci-lint, Spore's
-own lint suite, Go tests, govulncheck, and `nix flake check`.
-`just build` builds the Go binary and the flake package.
-`just coverage` writes local coverage reports under `coverage/` and is
-required in CI before the advisory Codecov upload step runs.
-
-Without entering the shell:
-
-```sh
-nix develop --command just check
-```
-
-The CLI is plain Go. Start at [cmd/spore/main.go](cmd/spore/main.go)
-for command routing.
-
-## Architecture
-
-```mermaid
-flowchart TD
-    Operator["operator"]
-
-    subgraph Setup["bootstrap setup"]
-        Bootstrap["spore bootstrap"]
-        Harness["rules, hooks, lints, skills"]
-        Bootstrap --> Harness
-    end
-
-    subgraph Execution["task execution"]
-        Tasks["tasks/*.md"]
-        Coordinator["coordinator tmux session"]
-        Workers["worker tmux sessions"]
-        Worktrees["git worktrees"]
-        Project["project repo"]
-        Tasks --> Coordinator --> Workers --> Worktrees --> Project
-    end
-
-    Operator --> Bootstrap
-    Operator --> Tasks
-    Harness -.->|guards| Worktrees
-```
-
-Main extension points:
-
-- [internal/bootstrap/](internal/bootstrap/) detects bootstrap stages
-  and pairs with runbooks in [bootstrap/stages/](bootstrap/stages/).
-- [internal/task/](internal/task/) owns task frontmatter, lifecycle,
-  worktree creation, inbox handling, and merge close paths.
-- [internal/fleet/](internal/fleet/) reconciles active tasks with tmux
-  worker sessions and drives the matter sync prelude.
-- [internal/matter/](internal/matter/) is the plugin layer for
-  external work sources (e.g. [linear](internal/matter/linear/)).
-- [internal/hooks/](internal/hooks/) emits and runs Claude Code and
-  Codex hook bindings; both agents share the same payload shape, wired
-  through `.claude/settings.json` and the user-level
-  `~/.codex/hooks.json` (`spore hooks codex-config`).
-- [internal/lints/](internal/lints/) holds portable repo lints.
-- [internal/composer/](internal/composer/) renders instruction files
-  from rule fragments in [rules/](rules/).
-- [nixosModules/spore-fleet.nix](nixosModules/spore-fleet.nix)
-  autostarts fleet reconciliation on NixOS hosts.
+Start at [cmd/spore/main.go](cmd/spore/main.go).
 
 ## Docs
 
-- [docs/design.md](docs/design.md) - origin, design rationale, and
-  unresolved tradeoffs.
-- [docs/worker-dispatch.md](docs/worker-dispatch.md) - why workers
-  are spawned through tmux and how the merge close path works.
-- [docs/evidence.md](docs/evidence.md) - the evidence contract for
-  task close gates.
-- [docs/budget.md](docs/budget.md) - rolling Anthropic spend tracking
-  and budget advice.
-- [bootstrap/README.md](bootstrap/README.md) - bootstrap layout,
-  skills, stage runbooks, and smoke test.
+- [docs/infect.md](docs/infect.md): `spore infect` flags and failures.
+- [docs/configuration.md](docs/configuration.md): `spore.toml`
+  worker mix, matter plugins (Linear), editor, graceful deploys.
+- [docs/design.md](docs/design.md): design rationale.
+- [docs/worker-dispatch.md](docs/worker-dispatch.md): worker spawn and
+  merge path.
+- [docs/evidence.md](docs/evidence.md): the evidence contract for
+  closing tasks.
+- [docs/budget.md](docs/budget.md): spend tracking.
+- [docs/todo/nightly-dreaming.md](docs/todo/nightly-dreaming.md): how
+  `spore dream` works;
+  [nightly-dreaming-deploy.md](docs/todo/nightly-dreaming-deploy.md):
+  putting it on a timer.
+- [docs/todo/eval-harness-for-prompt-surfaces.md](docs/todo/eval-harness-for-prompt-surfaces.md):
+  `spore eval` scenarios and recorded runs.
+- [bootstrap/README.md](bootstrap/README.md): bootstrap stages and
+  skills.
 
 ## License
 
-Spore is licensed under the Apache License, Version 2.0. See
-[LICENSE](LICENSE) for the full text.
+Apache License 2.0. See [LICENSE](LICENSE).
