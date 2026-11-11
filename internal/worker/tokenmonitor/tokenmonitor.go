@@ -6,10 +6,10 @@
 // tasks/<slug>.md and let the fleet reconciler resume it.
 //
 // Thresholds are tier-keyed and form three bands. Soft (wrap cap minus
-// 30k: 150k max / 90k sub) fires once per session: wrap at the next
-// natural break. Wrap (180k max / 120k sub) fires on every Stop:
+// 30k: 250k max / 90k sub) fires once per session: wrap at the next
+// natural break. Wrap (280k max / 120k sub) fires on every Stop:
 // finish the unit in flight, start nothing new, then flush and
-// self-kill. Force (195k max / 140k sub, under the 150k API hard block
+// self-kill. Force (300k max / 140k sub, under the 150k API hard block
 // on sub) fires on every Stop: wrap immediately regardless of what is
 // in flight. Tier defaults to non-max so a session with an unknown
 // tier wraps at the safer caps.
@@ -43,14 +43,14 @@ import (
 )
 
 const (
-	DefaultWrapMax  = 180000
+	DefaultWrapMax  = 280000
 	DefaultWrapSub  = 120000
-	DefaultForceMax = 195000
+	DefaultForceMax = 300000
 	// DefaultForceSub stays under the 150k API hard block on sub-max
 	// accounts.
 	DefaultForceSub = 140000
 	// softGap is subtracted from the wrap cap to place the one-time
-	// early warning (150k on max, 90k on sub).
+	// early warning (250k on max, 90k on sub).
 	softGap = 30000
 
 	// workerKillCommand is the self-kill surfaced in every firing
@@ -255,7 +255,7 @@ func Check(cfg Config, payload HookPayload) CheckResult {
 		result.ShouldFire = true
 		var reason string
 		if cfg.Tier == "max" {
-			reason = "Quality degrades past 200k on max."
+			reason = "Quality degrades past 300k on max."
 		} else {
 			reason = "Sub-max account; the 150k hard block is close."
 		}
@@ -358,7 +358,7 @@ func checkRolePane(cfg Config, payload HookPayload) CheckResult {
 		result.ShouldFire = true
 		var reason string
 		if cfg.Tier == "max" {
-			reason = "Quality degrades past 200k on max."
+			reason = "Quality degrades past 300k on max."
 		} else {
 			reason = "Sub-max account; the 150k hard block is close."
 		}

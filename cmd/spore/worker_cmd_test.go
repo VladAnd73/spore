@@ -72,7 +72,7 @@ func TestRunWorkerTokenMonitorSkipNoInbox(t *testing.T) {
 func TestRunWorkerTokenMonitorRolePane(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":190000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":290000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestRunWorkerTokenMonitorRolePane(t *testing.T) {
 func TestRunWorkerTokenMonitorWrap(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":190000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":290000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

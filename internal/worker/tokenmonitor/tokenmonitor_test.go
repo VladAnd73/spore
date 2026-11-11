@@ -87,8 +87,8 @@ func TestForceCap(t *testing.T) {
 }
 
 func TestSoftCap(t *testing.T) {
-	if got := (Config{Tier: "max"}).Defaults().SoftCap(); got != 150000 {
-		t.Errorf("max SoftCap = %d, want 150000", got)
+	if got := (Config{Tier: "max"}).Defaults().SoftCap(); got != 250000 {
+		t.Errorf("max SoftCap = %d, want 250000", got)
 	}
 	if got := (Config{Tier: "pro"}).Defaults().SoftCap(); got != 90000 {
 		t.Errorf("sub SoftCap = %d, want 90000", got)
@@ -150,7 +150,7 @@ func TestCheckOk(t *testing.T) {
 func TestCheckWrapMax(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":190000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":290000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestCheckWrapOverride(t *testing.T) {
 func TestCheckWrapFinishUnitEveryStop(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":190000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":290000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestCheckWrapFinishUnitEveryStop(t *testing.T) {
 func TestCheckForceMax(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":196000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":301000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestCheckForceSubTier(t *testing.T) {
 func TestCheckSoftWarnOncePerSession(t *testing.T) {
 	dir := t.TempDir()
 	transcriptFile := filepath.Join(dir, "session.jsonl")
-	line := `{"role":"assistant","usage":{"input_tokens":151000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
+	line := `{"role":"assistant","usage":{"input_tokens":251000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}`
 	if err := os.WriteFile(transcriptFile, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -358,8 +358,8 @@ func TestCheckSoftWarnOncePerSession(t *testing.T) {
 	if !got.ShouldFire {
 		t.Error("ShouldFire = false, want true on first soft crossing")
 	}
-	if got.SoftCap != 150000 {
-		t.Errorf("SoftCap = %d, want 150000", got.SoftCap)
+	if got.SoftCap != 250000 {
+		t.Errorf("SoftCap = %d, want 250000", got.SoftCap)
 	}
 	if !strings.Contains(got.Message, "next natural break") {
 		t.Errorf("soft message must suggest the next natural break, got:\n%s", got.Message)
@@ -426,7 +426,7 @@ func writeTranscript(t *testing.T, n string) string {
 }
 
 func TestCheckRolePaneWrapEngineer(t *testing.T) {
-	tpath := writeTranscript(t, "190000")
+	tpath := writeTranscript(t, "290000")
 	cfg := Config{
 		Role:     "engineer",
 		RoleSlug: "eng-slug",
@@ -466,7 +466,7 @@ func TestCheckRolePaneWrapEngineer(t *testing.T) {
 }
 
 func TestCheckRolePaneForceReviewer(t *testing.T) {
-	tpath := writeTranscript(t, "196000")
+	tpath := writeTranscript(t, "301000")
 	cfg := Config{
 		Role:             "reviewer",
 		ReviewerInstance: "B",
@@ -511,7 +511,7 @@ func TestCheckRolePaneSubTierCaps(t *testing.T) {
 }
 
 func TestCheckRolePaneSoftOncePerSession(t *testing.T) {
-	tpath := writeTranscript(t, "151000")
+	tpath := writeTranscript(t, "251000")
 	taskDir := filepath.Join(t.TempDir(), ".spore", "soft-slug")
 	cfg := Config{Role: "engineer", RoleSlug: "soft-slug", TaskDir: taskDir, Tier: "max"}
 
@@ -538,7 +538,7 @@ func TestCheckRolePaneSoftOncePerSession(t *testing.T) {
 }
 
 func TestCheckRolePaneNoTaskDirDisablesSoft(t *testing.T) {
-	tpath := writeTranscript(t, "151000")
+	tpath := writeTranscript(t, "251000")
 	cfg := Config{Role: "engineer", RoleSlug: "nodir", Tier: "max"}
 	got := Check(cfg, HookPayload{SessionID: "s", TranscriptPath: tpath})
 	if got.Level != "ok" || got.ShouldFire {
@@ -563,7 +563,7 @@ func TestCheckRolePaneMissingSlugSkips(t *testing.T) {
 }
 
 func TestCheckRolePanePrecedesInheritedInbox(t *testing.T) {
-	tpath := writeTranscript(t, "190000")
+	tpath := writeTranscript(t, "290000")
 	stateDir := t.TempDir()
 	cfg := Config{
 		Role:                "engineer",
