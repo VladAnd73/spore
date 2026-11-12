@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Tests: `TestProbeRolePaneTmux` no longer flakes under load. It
+  polls the live pane until the exec lands and sets `remain-on-exit`
+  in the same tmux call that creates the dead pane.
+
 - Token monitors: max-tier caps raised 100k for 1M-context sessions.
   Coordinator soft / hard / force move from 150k / 190k / 200k to
   250k / 290k / 300k. Max-tier workers and role panes move wrap /

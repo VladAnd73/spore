@@ -445,8 +445,10 @@ func TestProbeRolePaneTmux(t *testing.T) {
 	}
 	for _, cmd := range []*exec.Cmd{
 		exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "probe-live", "exec sleep 300"),
-		exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "probe-dead", "sleep 1"),
-		exec.Command("tmux", "-L", testTmuxSocket, "set-option", "-t", "probe-dead", "remain-on-exit", "on"),
+		// Chained in one client call so the option lands before the
+		// pane can exit and take the session with it.
+		exec.Command("tmux", "-L", testTmuxSocket, "new-session", "-d", "-s", "probe-dead", "sleep 1",
+			";", "set-option", "-t", "probe-dead", "remain-on-exit", "on"),
 	} {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%v: %v: %s", cmd.Args, err, out)
@@ -457,9 +459,20 @@ func TestProbeRolePaneTmux(t *testing.T) {
 		_ = exec.Command("tmux", "-L", testTmuxSocket, "kill-session", "-t", "probe-dead").Run()
 	})
 
-	live, err := probeRolePaneTmux("probe-live")
-	if err != nil {
-		t.Fatal(err)
+	// Until the exec lands, tmux reports the forked server or the shell
+	// as pane_current_command.
+	var live paneProbe
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var err error
+		live, err = probeRolePaneTmux("probe-live")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if live.Command == "sleep" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 	if !live.Exists || live.Dead || live.Command != "sleep" || live.Created.IsZero() {
 		t.Errorf("live probe = %+v", live)
@@ -468,7 +481,7 @@ func TestProbeRolePaneTmux(t *testing.T) {
 		t.Errorf("live pane judged gone: %s", reason)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for {
 		dead, err := probeRolePaneTmux("probe-dead")
 		if err != nil {
