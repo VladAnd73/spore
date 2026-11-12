@@ -405,6 +405,11 @@ func (m *githubMirror) ensurePR() error {
 		return fmt.Errorf("gh pr list: %w", err)
 	}
 	if len(found) == 1 {
+		// An adopted PR was opened outside the loop, so it lacks the
+		// operator assignee that `pr create` sets below.
+		if _, err := m.gh("", "pr", "edit", strconv.Itoa(found[0].Number), "--add-assignee", m.cfg.OperatorLogin); err != nil {
+			return err
+		}
 		m.state.PRNumber, m.state.PRURL = found[0].Number, found[0].URL
 		m.save()
 		return nil
