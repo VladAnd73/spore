@@ -82,26 +82,9 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		return nil, err
 	}
 
-	var slot ReviewerSlot
-	if s.Role == "reviewer" {
-		cfg, err := LoadReviewersConfig(s.ProjectRoot)
-		if err != nil {
-			return nil, err
-		}
-		slot = cfg.Slot(s.ReviewerInstance)
-	}
-	meta, err := s.taskMeta()
+	slot, meta, agent, err := s.resolve()
 	if err != nil {
 		return nil, err
-	}
-	if slot.DefaultMode && slot.Mode == ReviewerModeCodeReview {
-		agent, err := s.agent(slot.Agent, meta)
-		if err != nil {
-			return nil, err
-		}
-		if !isClaudeAgent(agent) {
-			slot.Mode, slot.Effort = ReviewerModeFleet, ""
-		}
 	}
 	rolePath := s.RoleBodyPath
 	if rolePath == "" {
@@ -117,7 +100,7 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 	if cwd == "" {
 		cwd = filepath.Join(s.ProjectRoot, ".worktrees", s.Slug)
 	}
-	withBody, bare, err := s.invocations(slot, meta)
+	withBody, bare, err := s.invocations(agent, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -172,22 +155,60 @@ func commitIdentityEnv(projectRoot string) []string {
 	return out
 }
 
-// invocations returns the pane's agent command with and without a
-// role body (see agentInvocations). A reviewer slot's agent beats
-// roleAgent; a code-review slot without one runs claude.
-func (s RoleSpawnSpec) invocations(slot ReviewerSlot, meta frontmatter.Meta) (withBody, bare string, err error) {
-	if s.Agent != "" {
-		withBody, bare = agentInvocations(s.Agent)
-		return withBody, bare, nil
+// resolve settles the pane's reviewer slot and agent in one place.
+// Agent: the spec's Agent, else the slot's, else claude for an
+// explicit code-review slot, else roleAgent. A defaulted code-review
+// slot whose agent is non-claude drops to fleet; Effort is filled in
+// code-review mode and cleared, with a warning, in fleet mode.
+func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agent string, err error) {
+	if s.Role == "reviewer" {
+		cfg, err := LoadReviewersConfig(s.ProjectRoot)
+		if err != nil {
+			return slot, meta, "", err
+		}
+		slot = cfg.Slot(s.ReviewerInstance)
 	}
-	agent := slot.Agent
-	if agent == "" && slot.Mode == ReviewerModeCodeReview {
+	if s.Agent == "" {
+		tasksDir := s.TasksDir
+		if tasksDir == "" {
+			tasksDir = filepath.Join(s.ProjectRoot, "tasks")
+		}
+		if meta, err = readRoleTaskMeta(tasksDir, s.Slug); err != nil {
+			return slot, meta, "", err
+		}
+	}
+	switch {
+	case s.Agent != "":
+		agent = s.Agent
+	case slot.Agent != "":
+		agent = slot.Agent
+	case slot.Mode == ReviewerModeCodeReview && !slot.DefaultMode:
 		agent = "claude"
+	default:
+		if agent, err = roleAgent(s.ProjectRoot, meta); err != nil {
+			return slot, meta, "", err
+		}
 	}
-	if agent, err = s.agent(agent, meta); err != nil {
-		return "", "", err
+	if s.Role != "reviewer" {
+		return slot, meta, agent, nil
 	}
-	if agent != "codex" {
+	if slot.Mode == ReviewerModeCodeReview && slot.DefaultMode && !isClaudeAgent(agent) {
+		slot.Mode = ReviewerModeFleet
+	}
+	switch {
+	case slot.Mode == ReviewerModeCodeReview && slot.Effort == "":
+		slot.Effort = DefaultReviewEffort
+	case slot.Mode == ReviewerModeFleet && slot.Effort != "":
+		fmt.Fprintf(roleWarnings, "rolespawn: [fleet.reviewers.%s] effort %q ignored: slot runs in %s mode with agent %q\n", s.ReviewerInstance, slot.Effort, ReviewerModeFleet, agent)
+		slot.Effort = ""
+	}
+	return slot, meta, agent, nil
+}
+
+// invocations returns the pane's agent command with and without a
+// role body (see agentInvocations) for the agent resolve picked.
+func (s RoleSpawnSpec) invocations(agent string, meta frontmatter.Meta) (withBody, bare string, err error) {
+	if s.Agent != "" || agent != "codex" {
 		withBody, bare = agentInvocations(agent)
 		return withBody, bare, nil
 	}
@@ -196,31 +217,6 @@ func (s RoleSpawnSpec) invocations(slot ReviewerSlot, meta frontmatter.Meta) (wi
 		return "", "", err
 	}
 	return cmd + " --", cmd, nil
-}
-
-// taskMeta reads the task's frontmatter; an explicit spec Agent
-// makes it moot.
-func (s RoleSpawnSpec) taskMeta() (frontmatter.Meta, error) {
-	if s.Agent != "" {
-		return frontmatter.Meta{}, nil
-	}
-	tasksDir := s.TasksDir
-	if tasksDir == "" {
-		tasksDir = filepath.Join(s.ProjectRoot, "tasks")
-	}
-	return readRoleTaskMeta(tasksDir, s.Slug)
-}
-
-// agent resolves the pane's agent: the spec's Agent, else slotAgent,
-// else roleAgent.
-func (s RoleSpawnSpec) agent(slotAgent string, meta frontmatter.Meta) (string, error) {
-	switch {
-	case s.Agent != "":
-		return s.Agent, nil
-	case slotAgent != "":
-		return slotAgent, nil
-	}
-	return roleAgent(s.ProjectRoot, meta)
 }
 
 // roleAgent picks the agent for a task's role panes: the task's

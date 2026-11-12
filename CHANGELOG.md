@@ -6,8 +6,8 @@
   `reviewer-code-review.md`) ship embedded in the binary. A project's
   `bootstrap/roles/<name>.md` still overrides the bundled body; with
   no project file the bundled one is written to
-  `$XDG_STATE_HOME/spore/<project>/roles/` and refreshed when it
-  differs. `[fleet.reviewers.A]` without `mode` now defaults to
+  `$XDG_STATE_HOME/spore/<project>/roles/<sha>/`, keyed by content.
+  An unreadable or dangling override fails the spawn. `[fleet.reviewers.A]` without `mode` now defaults to
   `code-review` (effort `medium`); B stays `fleet`. A defaulted A
   whose agent resolves to non-claude falls back to `fleet`; explicit
   `code-review` plus a non-claude agent still fails. Consumer impact:

@@ -3,6 +3,7 @@ package fleet
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	spore "github.com/versality/spore"
@@ -34,8 +35,8 @@ func TestResolveRoleBodyBundled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if wantPath := filepath.Join(state, "spore", "demo-project", "roles", name); got != wantPath {
-			t.Errorf("%s path = %q, want %q", name, got, wantPath)
+		if dir := filepath.Join(state, "spore", "demo-project", "roles"); filepath.Dir(filepath.Dir(got)) != dir || filepath.Base(got) != name {
+			t.Errorf("%s path = %q, want %s/<sha>/%s", name, got, dir, name)
 		}
 		b, err := os.ReadFile(got)
 		if err != nil {
@@ -62,5 +63,42 @@ func TestResolveRoleBodyUnknown(t *testing.T) {
 	root := newGitRepoFor(t, "demo-project")
 	if _, err := ResolveRoleBody(root, "qa.md"); err == nil {
 		t.Fatal("expected error for a body in neither source")
+	}
+}
+
+func TestResolveRoleBodyPathTracksContent(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := newGitRepoFor(t, "demo-project")
+	eng, err := ResolveRoleBody(root, "engineer.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev, err := ResolveRoleBody(root, "reviewer.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(eng) == filepath.Dir(rev) {
+		t.Errorf("bodies with different content share dir %s", filepath.Dir(eng))
+	}
+}
+
+func TestResolveRoleBodyBrokenOverride(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := newGitRepoFor(t, "demo-project")
+	dir := filepath.Join(root, "bootstrap", "roles")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "gone.md"), filepath.Join(dir, "reviewer.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRoleBody(root, "reviewer.md"); err == nil || !strings.Contains(err.Error(), "dangling") {
+		t.Errorf("dangling override: err = %v, want dangling symlink error", err)
+	}
+	if err := os.Symlink("engineer.md", filepath.Join(dir, "engineer.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRoleBody(root, "engineer.md"); err == nil {
+		t.Error("looping override: want error, got bundled fallback")
 	}
 }

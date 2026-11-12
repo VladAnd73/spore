@@ -28,9 +28,10 @@ var reviewEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 // ReviewerSlot is one `[fleet.reviewers.<A|B>]` table, overlaid by
 // the host-side workers.toml key by key. Agent "" means the slot
 // follows roleAgent, except in code-review mode, which is claude-only.
-// DefaultMode marks a Mode no config set; a defaulted code-review
-// slot falls back to fleet at spawn when its agent resolves to
-// non-claude, where an explicit one is an error.
+// DefaultMode marks a Mode no config set. Mode and Effort of a loaded
+// slot are provisional: the role spawn settles them (see
+// RoleSpawnSpec.resolve), dropping a defaulted code-review slot to
+// fleet when its agent resolves to non-claude and filling Effort.
 type ReviewerSlot struct {
 	Mode        string
 	Agent       string
@@ -60,8 +61,8 @@ func (c *ReviewersConfig) slot(inst task.ReviewerInstance) *ReviewerSlot {
 // LoadReviewersConfig reads `[fleet.reviewers.A]` and
 // `[fleet.reviewers.B]` from spore.toml, then the host overlay (see
 // WorkersOverlayPath). Without a `mode`, A defaults to code-review
-// (effort medium) and B to fleet: bug hunt first, spec and
-// verification second.
+// and B to fleet: bug hunt first, spec and verification second. The
+// spawn settles the effective mode and effort (see ReviewerSlot).
 func LoadReviewersConfig(projectRoot string) (ReviewersConfig, error) {
 	var cfg ReviewersConfig
 	paths := []string{filepath.Join(projectRoot, "spore.toml")}
@@ -119,7 +120,7 @@ func finishReviewerSlot(slot *ReviewerSlot, inst task.ReviewerInstance) error {
 	case "":
 		slot.DefaultMode = true
 		slot.Mode = ReviewerModeFleet
-		if inst == task.ReviewerA && (slot.Agent == "" || isClaudeAgent(slot.Agent)) {
+		if inst == task.ReviewerA {
 			slot.Mode = ReviewerModeCodeReview
 		}
 	case ReviewerModeFleet, ReviewerModeCodeReview:
@@ -132,14 +133,8 @@ func finishReviewerSlot(slot *ReviewerSlot, inst task.ReviewerInstance) error {
 	if slot.Effort != "" && !slices.Contains(reviewEfforts, slot.Effort) {
 		return fmt.Errorf("reviewers: %s effort %q: want one of %v", section, slot.Effort, reviewEfforts)
 	}
-	if slot.Mode != ReviewerModeCodeReview {
-		return nil
-	}
-	if slot.Agent != "" && !isClaudeAgent(slot.Agent) {
+	if slot.Mode == ReviewerModeCodeReview && !slot.DefaultMode && slot.Agent != "" && !isClaudeAgent(slot.Agent) {
 		return fmt.Errorf("reviewers: %s mode %q runs a Claude Code skill and needs agent claude, got %q", section, ReviewerModeCodeReview, slot.Agent)
-	}
-	if slot.Effort == "" {
-		slot.Effort = DefaultReviewEffort
 	}
 	return nil
 }

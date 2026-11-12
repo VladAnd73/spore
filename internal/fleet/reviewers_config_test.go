@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ func TestLoadReviewersConfig(t *testing.T) {
 		{
 			name: "defaults A to code-review, B to fleet",
 			want: ReviewersConfig{
-				A: ReviewerSlot{Mode: "code-review", Effort: "medium", DefaultMode: true},
+				A: ReviewerSlot{Mode: "code-review", DefaultMode: true},
 				B: ReviewerSlot{Mode: "fleet", DefaultMode: true},
 			},
 		},
@@ -29,10 +30,10 @@ func TestLoadReviewersConfig(t *testing.T) {
 			want: ReviewersConfig{A: ReviewerSlot{Mode: "fleet"}, B: ReviewerSlot{Mode: "fleet", DefaultMode: true}},
 		},
 		{
-			name: "implicit A with codex slot agent falls back to fleet",
+			name: "implicit A with codex slot agent loads, spawn settles it",
 			toml: "[fleet.reviewers.A]\nagent = \"codex\"\n",
 			want: ReviewersConfig{
-				A: ReviewerSlot{Mode: "fleet", Agent: "codex", DefaultMode: true},
+				A: ReviewerSlot{Mode: "code-review", Agent: "codex", DefaultMode: true},
 				B: ReviewerSlot{Mode: "fleet", DefaultMode: true},
 			},
 		},
@@ -45,9 +46,9 @@ func TestLoadReviewersConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "code-review effort defaults to medium, claude-code alias",
+			name: "claude-code alias",
 			toml: "[fleet.reviewers.A]\nmode = \"code-review\"\nagent = \"claude-code\"\n",
-			want: ReviewersConfig{A: ReviewerSlot{Mode: "code-review", Agent: "claude", Effort: "medium"}, B: ReviewerSlot{Mode: "fleet", DefaultMode: true}},
+			want: ReviewersConfig{A: ReviewerSlot{Mode: "code-review", Agent: "claude"}, B: ReviewerSlot{Mode: "fleet", DefaultMode: true}},
 		},
 		{
 			name:    "overlay wins key by key",
@@ -229,6 +230,7 @@ func TestRoleSpawnImplicitCodeReviewFallsBackToFleet(t *testing.T) {
 	}{
 		{name: "claude default", wantMode: "code-review", wantCmd: "exec claude ", wantBody: "reviewer-code-review.md"},
 		{name: "task pins codex", taskAgent: "codex", wantMode: "fleet", wantCmd: "exec codex ", wantBody: "reviewer.md"},
+		{name: "slot agent codex", toml: "[fleet.reviewers.A]\nagent = \"codex\"\n", wantMode: "fleet", wantCmd: "exec codex ", wantBody: "reviewer.md"},
 		{name: "workers default codex", toml: "[fleet.workers]\ndefault = \"codex\"\n", wantMode: "fleet", wantCmd: "exec codex ", wantBody: "reviewer.md"},
 		{name: "spec agent", specAgent: "sleep 30", wantMode: "fleet", wantCmd: "exec sleep 30", wantBody: "reviewer.md"},
 		{name: "explicit code-review keeps claude", taskAgent: "codex", toml: "[fleet.reviewers.A]\nmode = \"code-review\"\n", wantMode: "code-review", wantCmd: "exec claude ", wantBody: "reviewer-code-review.md"},
@@ -260,6 +262,65 @@ func TestRoleSpawnImplicitCodeReviewFallsBackToFleet(t *testing.T) {
 				t.Errorf("command = %q, want body %s", cmd, c.wantBody)
 			}
 		})
+	}
+}
+
+func TestRoleSpawnEffortIgnoredInFleetWarns(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv(task.CodexBinEnv, "")
+	t.Setenv(task.CodexModelEnv, "")
+	var warn strings.Builder
+	defer func(w io.Writer) { roleWarnings = w }(roleWarnings)
+	roleWarnings = &warn
+
+	root := newGitRepoFor(t, "demo-project")
+	writeRoleTask(t, root, "codex")
+	writeSporeTOML(t, root, "[fleet.reviewers.A]\neffort = \"high\"\n[fleet.reviewers.B]\neffort = \"low\"\n")
+	for _, inst := range []task.ReviewerInstance{task.ReviewerA, task.ReviewerB} {
+		args, err := ReviewerSpec(root, "feature-x", inst).TmuxArgs()
+		if err != nil {
+			t.Fatalf("%s TmuxArgs: %v", inst, err)
+		}
+		if hasEnvArg(args, "SPORE_REVIEW_EFFORT") {
+			t.Errorf("%s carries SPORE_REVIEW_EFFORT in fleet mode", inst)
+		}
+		if want := "[fleet.reviewers." + string(inst) + "] effort"; !strings.Contains(warn.String(), want) {
+			t.Errorf("warnings = %q, want %q", warn.String(), want)
+		}
+	}
+}
+
+func TestRoleSpawnMixedRoleSources(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var warn strings.Builder
+	defer func(w io.Writer) { roleWarnings = w }(roleWarnings)
+	roleWarnings = &warn
+
+	root := newGitRepoFor(t, "demo-project")
+	writeRoleBodies(t, root)
+	if err := os.Remove(filepath.Join(root, "bootstrap", "roles", "reviewer-code-review.md")); err != nil {
+		t.Fatal(err)
+	}
+	argsA, err := ReviewerSpec(root, "feature-x", task.ReviewerA).TmuxArgs()
+	if err != nil {
+		t.Fatalf("A TmuxArgs: %v", err)
+	}
+	bundled, err := ResolveRoleBody(root, "reviewer-code-review.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(bundled, root) || !strings.Contains(argsA[len(argsA)-1], bundled) {
+		t.Errorf("A command = %q, want bundled body %s", argsA[len(argsA)-1], bundled)
+	}
+	if !strings.Contains(warn.String(), "no reviewer-code-review.md") {
+		t.Errorf("warnings = %q, want a mixed-source warning", warn.String())
+	}
+	argsB, err := ReviewerSpec(root, "feature-x", task.ReviewerB).TmuxArgs()
+	if err != nil {
+		t.Fatalf("B TmuxArgs: %v", err)
+	}
+	if want := filepath.Join(root, "bootstrap", "roles", "reviewer.md"); !strings.Contains(argsB[len(argsB)-1], want) {
+		t.Errorf("B command = %q, want project body %s", argsB[len(argsB)-1], want)
 	}
 }
 

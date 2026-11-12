@@ -123,8 +123,12 @@ the absolute `.spore/<slug>/` tree, plus `SPORE_TASK_SLUG`,
 environment. Role bodies are bundled in the spore binary; a project
 file at `bootstrap/roles/<role>.md` overrides the bundled body of the
 same name. A bundled body is written to
-`$XDG_STATE_HOME/spore/<project>/roles/<role>.md` (refreshed when the
-binary's copy differs) so the pane can read it. See "Reviewer slots"
+`$XDG_STATE_HOME/spore/<project>/roles/<sha>/<role>.md`, keyed by
+content so two spore releases spawning for one project never swap
+each other's body. An override that exists but cannot be read
+(dangling symlink, permissions) fails the spawn instead of falling
+back. A project with a `bootstrap/roles/` dir that lacks one body
+gets a stderr warning when the bundled body fills the gap. See "Reviewer slots"
 for the code-review body.
 When `[fleet] account_tier` is set in spore.toml, panes also get
 `SPORE_ACCOUNT_TIER`, and `spore worker token-monitor` meters them
@@ -167,7 +171,9 @@ mode = "fleet"
 - `code-review` is claude-only. A defaults to it (effort `medium`)
   when no `mode` is set, but falls back to `fleet` when its agent
   (slot `agent`, else the task `agent:`, else the `[fleet.workers]`
-  default) resolves to non-claude. An explicit `mode = "code-review"`
+  default) resolves to non-claude; an `effort` it set is then
+  ignored with a stderr warning, as on any fleet slot. An explicit
+  `mode = "code-review"`
   with a non-claude `agent` fails config load; without `agent` it
   runs claude even when the task pins codex.
 - `agent` on a slot overrides only that slot. It is resolved per
