@@ -124,13 +124,15 @@ environment. Role bodies are bundled in the spore binary; a project
 file at `bootstrap/roles/<role>.md` overrides the bundled body of the
 same name. A bundled body is written to
 `$XDG_STATE_HOME/spore/<project>/roles/<sha>/<role>.md`, keyed by
-content so two spore releases spawning for one project never swap
-each other's body. An override that exists but is broken (dangling
-symlink on the file or the `bootstrap/roles` dir, unreadable, not a
-regular file) fails the spawn instead of falling back. A project
-with a `bootstrap/roles/` dir that lacks one body gets a stderr
-warning, once per process, when the bundled body fills the gap. See "Reviewer slots"
-for the code-review body.
+content so two spore releases spawning for one project never swap each
+other's body. An override that exists but is broken (dangling symlink
+on the file or the `bootstrap/roles` dir, unreadable, not a regular
+file) fails the spawn instead of falling back; a `bootstrap` or
+`bootstrap/roles` that is not a directory (such as a `./bootstrap`
+script) means no override. A project with a `bootstrap/roles/` dir
+that lacks one body gets a stderr warning, once per process, when the
+bundled body fills the gap. See "Reviewer slots" for the code-review
+body.
 When `[fleet] account_tier` is set in spore.toml, panes also get
 `SPORE_ACCOUNT_TIER`, and `spore worker token-monitor` meters them
 with the same three bands as workers (soft warn, finish-unit, force)
@@ -177,13 +179,13 @@ mode = "fleet"
   is re-evaluated at every spawn, like the agent, so changing the
   task agent or `[fleet.workers]` default mid-task can switch A
   between the two protocols across rounds; pin `mode` on A to rule
-  that out. An explicit
-  `mode = "code-review"`
-  with a non-claude `agent` fails config load; without `agent` it
-  runs claude even when the task pins codex.
-- `agent` on a slot overrides only that slot. It is resolved per
-  spawn, like the task agent, so a pane never flips agents between
-  ticks.
+  that out. An explicit `mode = "code-review"` with a non-claude
+  `agent` fails config load; without `agent` it runs claude even
+  when the task pins codex.
+- `agent` on a slot overrides only that slot. It is resolved at each
+  spawn from the current config, like the task agent, and never from
+  the worker ratio: a live pane keeps its agent, but a pane spawned
+  after a config edit picks up the new one.
 - Panes get `SPORE_REVIEWER_MODE`, plus `SPORE_REVIEW_EFFORT` in
   code-review mode.
 

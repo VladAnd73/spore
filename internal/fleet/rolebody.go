@@ -65,9 +65,10 @@ func ResolveRoleBody(projectRoot, name string) (string, error) {
 }
 
 // projectRoleBody returns the project override for name, or "" when
-// no path component exists. A component that exists but is broken
-// (dangling symlink, unreadable, wrong type) is an error, not an
-// absence: falling back would silently drop a customized body.
+// a path component is absent or a parent is not a directory. A
+// component that exists but is broken (dangling symlink, unreadable,
+// a body that is not a regular file) is an error, not an absence:
+// falling back would silently drop a customized body.
 func projectRoleBody(projectRoot, name string) (string, error) {
 	p := projectRoot
 	parts := []string{"bootstrap", "roles", name}
@@ -87,7 +88,8 @@ func projectRoleBody(projectRoot, name string) (string, error) {
 		case err != nil:
 			return "", fmt.Errorf("rolespawn: project role body %s: %w", p, err)
 		case i < len(parts)-1 && !fi.IsDir():
-			return "", fmt.Errorf("rolespawn: project role body %s: not a directory", p)
+			// e.g. an autotools-style ./bootstrap script: not an override.
+			return "", nil
 		case i == len(parts)-1 && !fi.Mode().IsRegular():
 			return "", fmt.Errorf("rolespawn: project role body %s: not a regular file", p)
 		}

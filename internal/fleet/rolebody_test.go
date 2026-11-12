@@ -140,3 +140,21 @@ func TestWarnRoleOnce(t *testing.T) {
 		t.Errorf("warnings = %q, want one %q", warn.String(), msg)
 	}
 }
+
+func TestResolveRoleBodyBootstrapScript(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := newGitRepoFor(t, "demo-project")
+	if err := os.WriteFile(filepath.Join(root, "bootstrap"), []byte("#!/bin/sh\nautoreconf -i\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveRoleBody(root, "reviewer.md")
+	if err != nil {
+		t.Fatalf("bootstrap script blocked the bundled fallback: %v", err)
+	}
+	if strings.HasPrefix(got, root) {
+		t.Errorf("path = %q, want the bundled body", got)
+	}
+	if _, err := EngineerSpec(root, "feature-x").TmuxArgs(); err != nil {
+		t.Errorf("engineer TmuxArgs: %v", err)
+	}
+}
