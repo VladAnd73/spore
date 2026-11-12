@@ -11,9 +11,9 @@ import (
 )
 
 // Reviewer slot modes: how a reviewer pane produces its verdict file.
-// ReviewerModeFleet runs bootstrap/roles/reviewer.md;
-// ReviewerModeCodeReview runs bootstrap/roles/reviewer-code-review.md,
-// which drives Claude Code's built-in /code-review skill.
+// ReviewerModeFleet runs the reviewer.md role body;
+// ReviewerModeCodeReview runs reviewer-code-review.md, which drives
+// Claude Code's built-in /code-review skill. See ResolveRoleBody.
 const (
 	ReviewerModeFleet      = "fleet"
 	ReviewerModeCodeReview = "code-review"
@@ -28,10 +28,14 @@ var reviewEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 // ReviewerSlot is one `[fleet.reviewers.<A|B>]` table, overlaid by
 // the host-side workers.toml key by key. Agent "" means the slot
 // follows roleAgent, except in code-review mode, which is claude-only.
+// DefaultMode marks a Mode no config set; a defaulted code-review
+// slot falls back to fleet at spawn when its agent resolves to
+// non-claude, where an explicit one is an error.
 type ReviewerSlot struct {
-	Mode   string
-	Agent  string
-	Effort string
+	Mode        string
+	Agent       string
+	Effort      string
+	DefaultMode bool
 }
 
 // ReviewersConfig holds the resolved slot for each reviewer instance.
@@ -55,8 +59,9 @@ func (c *ReviewersConfig) slot(inst task.ReviewerInstance) *ReviewerSlot {
 
 // LoadReviewersConfig reads `[fleet.reviewers.A]` and
 // `[fleet.reviewers.B]` from spore.toml, then the host overlay (see
-// WorkersOverlayPath). Absent tables leave a slot in fleet mode, so a
-// project without the keys keeps the two-pass fleet review.
+// WorkersOverlayPath). Without a `mode`, A defaults to code-review
+// (effort medium) and B to fleet: bug hunt first, spec and
+// verification second.
 func LoadReviewersConfig(projectRoot string) (ReviewersConfig, error) {
 	var cfg ReviewersConfig
 	paths := []string{filepath.Join(projectRoot, "spore.toml")}
@@ -112,7 +117,11 @@ func finishReviewerSlot(slot *ReviewerSlot, inst task.ReviewerInstance) error {
 	section := "[fleet.reviewers." + string(inst) + "]"
 	switch slot.Mode {
 	case "":
+		slot.DefaultMode = true
 		slot.Mode = ReviewerModeFleet
+		if inst == task.ReviewerA && (slot.Agent == "" || isClaudeAgent(slot.Agent)) {
+			slot.Mode = ReviewerModeCodeReview
+		}
 	case ReviewerModeFleet, ReviewerModeCodeReview:
 	default:
 		return fmt.Errorf("reviewers: %s mode %q: want %q or %q", section, slot.Mode, ReviewerModeFleet, ReviewerModeCodeReview)

@@ -17,8 +17,24 @@ func TestLoadReviewersConfig(t *testing.T) {
 		want    ReviewersConfig
 	}{
 		{
-			name: "defaults to fleet on both slots",
-			want: ReviewersConfig{A: ReviewerSlot{Mode: "fleet"}, B: ReviewerSlot{Mode: "fleet"}},
+			name: "defaults A to code-review, B to fleet",
+			want: ReviewersConfig{
+				A: ReviewerSlot{Mode: "code-review", Effort: "medium", DefaultMode: true},
+				B: ReviewerSlot{Mode: "fleet", DefaultMode: true},
+			},
+		},
+		{
+			name: "explicit fleet on A honored",
+			toml: "[fleet.reviewers.A]\nmode = \"fleet\"\n",
+			want: ReviewersConfig{A: ReviewerSlot{Mode: "fleet"}, B: ReviewerSlot{Mode: "fleet", DefaultMode: true}},
+		},
+		{
+			name: "implicit A with codex slot agent falls back to fleet",
+			toml: "[fleet.reviewers.A]\nagent = \"codex\"\n",
+			want: ReviewersConfig{
+				A: ReviewerSlot{Mode: "fleet", Agent: "codex", DefaultMode: true},
+				B: ReviewerSlot{Mode: "fleet", DefaultMode: true},
+			},
 		},
 		{
 			name: "per-slot mode agent effort",
@@ -31,7 +47,7 @@ func TestLoadReviewersConfig(t *testing.T) {
 		{
 			name: "code-review effort defaults to medium, claude-code alias",
 			toml: "[fleet.reviewers.A]\nmode = \"code-review\"\nagent = \"claude-code\"\n",
-			want: ReviewersConfig{A: ReviewerSlot{Mode: "code-review", Agent: "claude", Effort: "medium"}, B: ReviewerSlot{Mode: "fleet"}},
+			want: ReviewersConfig{A: ReviewerSlot{Mode: "code-review", Agent: "claude", Effort: "medium"}, B: ReviewerSlot{Mode: "fleet", DefaultMode: true}},
 		},
 		{
 			name:    "overlay wins key by key",
@@ -39,7 +55,7 @@ func TestLoadReviewersConfig(t *testing.T) {
 			overlay: "[fleet.workers]\ndefault = \"codex\"\n[fleet.reviewers.A]\neffort = \"max\"\n[fleet.reviewers.B]\nagent = \"codex\"\n",
 			want: ReviewersConfig{
 				A: ReviewerSlot{Mode: "code-review", Effort: "max"},
-				B: ReviewerSlot{Mode: "fleet", Agent: "codex"},
+				B: ReviewerSlot{Mode: "fleet", Agent: "codex", DefaultMode: true},
 			},
 		},
 	}
@@ -204,13 +220,46 @@ func TestRoleSpawnReviewerSlotAgentOverride(t *testing.T) {
 	}
 }
 
-func TestRoleSpawnCodeReviewNeedsBody(t *testing.T) {
+func TestRoleSpawnImplicitCodeReviewFallsBackToFleet(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	root := newGitRepoFor(t, "demo-project")
-	writeSporeTOML(t, root, "[fleet.reviewers.A]\nmode = \"code-review\"\n")
-	_, err := ReviewerSpec(root, "feature-x", task.ReviewerA).TmuxArgs()
-	if err == nil || !strings.Contains(err.Error(), "reviewer-code-review.md") {
-		t.Fatalf("err = %v, want missing body error", err)
+	t.Setenv(task.CodexBinEnv, "")
+	t.Setenv(task.CodexModelEnv, "")
+	cases := []struct {
+		name, taskAgent, toml, specAgent, wantMode, wantCmd, wantBody string
+	}{
+		{name: "claude default", wantMode: "code-review", wantCmd: "exec claude ", wantBody: "reviewer-code-review.md"},
+		{name: "task pins codex", taskAgent: "codex", wantMode: "fleet", wantCmd: "exec codex ", wantBody: "reviewer.md"},
+		{name: "workers default codex", toml: "[fleet.workers]\ndefault = \"codex\"\n", wantMode: "fleet", wantCmd: "exec codex ", wantBody: "reviewer.md"},
+		{name: "spec agent", specAgent: "sleep 30", wantMode: "fleet", wantCmd: "exec sleep 30", wantBody: "reviewer.md"},
+		{name: "explicit code-review keeps claude", taskAgent: "codex", toml: "[fleet.reviewers.A]\nmode = \"code-review\"\n", wantMode: "code-review", wantCmd: "exec claude ", wantBody: "reviewer-code-review.md"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := newGitRepoFor(t, "demo-project")
+			writeRoleTask(t, root, c.taskAgent)
+			if c.toml != "" {
+				writeSporeTOML(t, root, c.toml)
+			}
+			spec := ReviewerSpec(root, "feature-x", task.ReviewerA)
+			spec.Agent = c.specAgent
+			args, err := spec.TmuxArgs()
+			if err != nil {
+				t.Fatalf("TmuxArgs: %v", err)
+			}
+			if e := envValue(args, "SPORE_REVIEWER_MODE"); e != c.wantMode {
+				t.Errorf("SPORE_REVIEWER_MODE = %q, want %q", e, c.wantMode)
+			}
+			if got := hasEnvArg(args, "SPORE_REVIEW_EFFORT"); got != (c.wantMode == "code-review") {
+				t.Errorf("SPORE_REVIEW_EFFORT present = %v in mode %s", got, c.wantMode)
+			}
+			cmd := args[len(args)-1]
+			if !strings.Contains(cmd, c.wantCmd) {
+				t.Errorf("command = %q, want %q", cmd, c.wantCmd)
+			}
+			if !strings.Contains(cmd, string(filepath.Separator)+c.wantBody) {
+				t.Errorf("command = %q, want body %s", cmd, c.wantBody)
+			}
+		})
 	}
 }
 

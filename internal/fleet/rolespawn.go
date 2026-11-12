@@ -27,7 +27,7 @@ type RoleSpawnSpec struct {
 	ReviewerInstance task.ReviewerInstance
 	// RoleBodyPath is the absolute path to the role markdown that
 	// the agent should consume as its first user message.
-	// Defaults to <ProjectRoot>/bootstrap/roles/<Role>.md, or
+	// Defaults to ResolveRoleBody of <Role>.md, or of
 	// reviewer-code-review.md for a reviewer slot in code-review mode.
 	RoleBodyPath string
 	// Cwd is the working directory for the pane. Defaults to the
@@ -90,27 +90,34 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		}
 		slot = cfg.Slot(s.ReviewerInstance)
 	}
+	meta, err := s.taskMeta()
+	if err != nil {
+		return nil, err
+	}
+	if slot.DefaultMode && slot.Mode == ReviewerModeCodeReview {
+		agent, err := s.agent(slot.Agent, meta)
+		if err != nil {
+			return nil, err
+		}
+		if !isClaudeAgent(agent) {
+			slot.Mode, slot.Effort = ReviewerModeFleet, ""
+		}
+	}
 	rolePath := s.RoleBodyPath
 	if rolePath == "" {
 		body := s.Role + ".md"
 		if slot.Mode == ReviewerModeCodeReview {
 			body = "reviewer-code-review.md"
 		}
-		rolePath = filepath.Join(s.ProjectRoot, "bootstrap", "roles", body)
-		// A missing body would boot a bare agent with no protocol;
-		// only the new body can be absent in a consumer that links
-		// role bodies one by one.
-		if slot.Mode == ReviewerModeCodeReview {
-			if _, err := os.Stat(rolePath); err != nil {
-				return nil, fmt.Errorf("rolespawn: reviewer %s mode %q needs %s: %w", s.ReviewerInstance, ReviewerModeCodeReview, rolePath, err)
-			}
+		if rolePath, err = ResolveRoleBody(s.ProjectRoot, body); err != nil {
+			return nil, err
 		}
 	}
 	cwd := s.Cwd
 	if cwd == "" {
 		cwd = filepath.Join(s.ProjectRoot, ".worktrees", s.Slug)
 	}
-	withBody, bare, err := s.invocations(slot)
+	withBody, bare, err := s.invocations(slot, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -168,27 +175,17 @@ func commitIdentityEnv(projectRoot string) []string {
 // invocations returns the pane's agent command with and without a
 // role body (see agentInvocations). A reviewer slot's agent beats
 // roleAgent; a code-review slot without one runs claude.
-func (s RoleSpawnSpec) invocations(slot ReviewerSlot) (withBody, bare string, err error) {
+func (s RoleSpawnSpec) invocations(slot ReviewerSlot, meta frontmatter.Meta) (withBody, bare string, err error) {
 	if s.Agent != "" {
 		withBody, bare = agentInvocations(s.Agent)
 		return withBody, bare, nil
-	}
-	tasksDir := s.TasksDir
-	if tasksDir == "" {
-		tasksDir = filepath.Join(s.ProjectRoot, "tasks")
-	}
-	meta, err := readRoleTaskMeta(tasksDir, s.Slug)
-	if err != nil {
-		return "", "", err
 	}
 	agent := slot.Agent
 	if agent == "" && slot.Mode == ReviewerModeCodeReview {
 		agent = "claude"
 	}
-	if agent == "" {
-		if agent, err = roleAgent(s.ProjectRoot, meta); err != nil {
-			return "", "", err
-		}
+	if agent, err = s.agent(agent, meta); err != nil {
+		return "", "", err
 	}
 	if agent != "codex" {
 		withBody, bare = agentInvocations(agent)
@@ -199,6 +196,31 @@ func (s RoleSpawnSpec) invocations(slot ReviewerSlot) (withBody, bare string, er
 		return "", "", err
 	}
 	return cmd + " --", cmd, nil
+}
+
+// taskMeta reads the task's frontmatter; an explicit spec Agent
+// makes it moot.
+func (s RoleSpawnSpec) taskMeta() (frontmatter.Meta, error) {
+	if s.Agent != "" {
+		return frontmatter.Meta{}, nil
+	}
+	tasksDir := s.TasksDir
+	if tasksDir == "" {
+		tasksDir = filepath.Join(s.ProjectRoot, "tasks")
+	}
+	return readRoleTaskMeta(tasksDir, s.Slug)
+}
+
+// agent resolves the pane's agent: the spec's Agent, else slotAgent,
+// else roleAgent.
+func (s RoleSpawnSpec) agent(slotAgent string, meta frontmatter.Meta) (string, error) {
+	switch {
+	case s.Agent != "":
+		return s.Agent, nil
+	case slotAgent != "":
+		return slotAgent, nil
+	}
+	return roleAgent(s.ProjectRoot, meta)
 }
 
 // roleAgent picks the agent for a task's role panes: the task's

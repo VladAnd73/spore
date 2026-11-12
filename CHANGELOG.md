@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Role loop: role bodies (`engineer.md`, `reviewer.md`,
+  `reviewer-code-review.md`) ship embedded in the binary. A project's
+  `bootstrap/roles/<name>.md` still overrides the bundled body; with
+  no project file the bundled one is written to
+  `$XDG_STATE_HOME/spore/<project>/roles/` and refreshed when it
+  differs. `[fleet.reviewers.A]` without `mode` now defaults to
+  `code-review` (effort `medium`); B stays `fleet`. A defaulted A
+  whose agent resolves to non-claude falls back to `fleet`; explicit
+  `code-review` plus a non-claude agent still fails. Consumer impact:
+  projects without reviewer config switch A to `/code-review`
+  (pin `mode = "fleet"` to keep the old pairing); symlinked
+  `bootstrap/roles/*.md` files pointing into a spore checkout can be
+  removed so the installed release's bodies apply.
+
 - Role loop: a PR adopted from before the loop (an open PR already on
   the task branch) now gets the operator added as assignee
   (`gh pr edit --add-assignee <operator_login>`), matching what
