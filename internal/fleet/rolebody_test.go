@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,5 +101,42 @@ func TestResolveRoleBodyBrokenOverride(t *testing.T) {
 	}
 	if _, err := ResolveRoleBody(root, "engineer.md"); err == nil {
 		t.Error("looping override: want error, got bundled fallback")
+	}
+}
+
+func TestResolveRoleBodyDanglingDirSymlink(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := newGitRepoFor(t, "demo-project")
+	if err := os.MkdirAll(filepath.Join(root, "bootstrap"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "moved-checkout", "roles"), filepath.Join(root, "bootstrap", "roles")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRoleBody(root, "reviewer.md"); err == nil || !strings.Contains(err.Error(), "dangling") {
+		t.Errorf("err = %v, want dangling symlink error for the roles dir", err)
+	}
+}
+
+func TestResolveRoleBodyNotRegular(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := newGitRepoFor(t, "demo-project")
+	if err := os.MkdirAll(filepath.Join(root, "bootstrap", "roles", "reviewer.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveRoleBody(root, "reviewer.md"); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Errorf("err = %v, want not a regular file", err)
+	}
+}
+
+func TestWarnRoleOnce(t *testing.T) {
+	var warn strings.Builder
+	defer func(w io.Writer) { roleWarnings = w }(roleWarnings)
+	roleWarnings = &warn
+	msg := "rolespawn: " + t.Name() + "\n"
+	warnRoleOnce("%s", msg)
+	warnRoleOnce("%s", msg)
+	if warn.String() != msg {
+		t.Errorf("warnings = %q, want one %q", warn.String(), msg)
 	}
 }

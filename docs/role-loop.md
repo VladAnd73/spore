@@ -125,10 +125,11 @@ file at `bootstrap/roles/<role>.md` overrides the bundled body of the
 same name. A bundled body is written to
 `$XDG_STATE_HOME/spore/<project>/roles/<sha>/<role>.md`, keyed by
 content so two spore releases spawning for one project never swap
-each other's body. An override that exists but cannot be read
-(dangling symlink, permissions) fails the spawn instead of falling
-back. A project with a `bootstrap/roles/` dir that lacks one body
-gets a stderr warning when the bundled body fills the gap. See "Reviewer slots"
+each other's body. An override that exists but is broken (dangling
+symlink on the file or the `bootstrap/roles` dir, unreadable, not a
+regular file) fails the spawn instead of falling back. A project
+with a `bootstrap/roles/` dir that lacks one body gets a stderr
+warning, once per process, when the bundled body fills the gap. See "Reviewer slots"
 for the code-review body.
 When `[fleet] account_tier` is set in spore.toml, panes also get
 `SPORE_ACCOUNT_TIER`, and `spore worker token-monitor` meters them
@@ -172,7 +173,11 @@ mode = "fleet"
   when no `mode` is set, but falls back to `fleet` when its agent
   (slot `agent`, else the task `agent:`, else the `[fleet.workers]`
   default) resolves to non-claude; an `effort` it set is then
-  ignored with a stderr warning, as on any fleet slot. An explicit
+  ignored with a stderr warning, as on any fleet slot. The fallback
+  is re-evaluated at every spawn, like the agent, so changing the
+  task agent or `[fleet.workers]` default mid-task can switch A
+  between the two protocols across rounds; pin `mode` on A to rule
+  that out. An explicit
   `mode = "code-review"`
   with a non-claude `agent` fails config load; without `agent` it
   runs claude even when the task pins codex.

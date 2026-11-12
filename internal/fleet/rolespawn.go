@@ -159,7 +159,10 @@ func commitIdentityEnv(projectRoot string) []string {
 // Agent: the spec's Agent, else the slot's, else claude for an
 // explicit code-review slot, else roleAgent. A defaulted code-review
 // slot whose agent is non-claude drops to fleet; Effort is filled in
-// code-review mode and cleared, with a warning, in fleet mode.
+// code-review mode and cleared, with a warning, in fleet mode. Like
+// the agent itself, the defaulted mode follows the config at each
+// spawn, so editing the agent config mid-task can switch A's protocol
+// between rounds (see docs/role-loop.md).
 func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agent string, err error) {
 	if s.Role == "reviewer" {
 		cfg, err := LoadReviewersConfig(s.ProjectRoot)
@@ -199,7 +202,7 @@ func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agen
 	case slot.Mode == ReviewerModeCodeReview && slot.Effort == "":
 		slot.Effort = DefaultReviewEffort
 	case slot.Mode == ReviewerModeFleet && slot.Effort != "":
-		fmt.Fprintf(roleWarnings, "rolespawn: [fleet.reviewers.%s] effort %q ignored: slot runs in %s mode with agent %q\n", s.ReviewerInstance, slot.Effort, ReviewerModeFleet, agent)
+		warnRoleOnce("rolespawn: %s [fleet.reviewers.%s] effort %q ignored: slot runs in %s mode with agent %q\n", s.ProjectRoot, s.ReviewerInstance, slot.Effort, ReviewerModeFleet, agent)
 		slot.Effort = ""
 	}
 	return slot, meta, agent, nil

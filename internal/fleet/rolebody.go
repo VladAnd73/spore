@@ -10,13 +10,24 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	spore "github.com/versality/spore"
 	"github.com/versality/spore/internal/task"
 )
 
-// roleWarnings receives non-fatal role spawn warnings.
 var roleWarnings io.Writer = os.Stderr
+
+var warnedRole sync.Map
+
+// warnRoleOnce reports msg once per process: the drive loop spawns
+// every round, and a config warning is not news the second time.
+func warnRoleOnce(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if _, dup := warnedRole.LoadOrStore(msg, true); !dup {
+		fmt.Fprint(roleWarnings, msg)
+	}
+}
 
 // ResolveRoleBody returns the path of role body name (e.g.
 // "reviewer.md"): <projectRoot>/bootstrap/roles/<name> when present,
@@ -27,24 +38,16 @@ var roleWarnings io.Writer = os.Stderr
 // spawning for one project from rewriting each other's body.
 func ResolveRoleBody(projectRoot, name string) (string, error) {
 	dir := filepath.Join(projectRoot, "bootstrap", "roles")
-	project := filepath.Join(dir, name)
-	_, err := os.Stat(project)
-	switch {
-	case err == nil:
-		return project, nil
-	case !errors.Is(err, fs.ErrNotExist):
-		return "", fmt.Errorf("rolespawn: project role body %s: %w", project, err)
-	}
-	// A dangling override is a broken customization, not an absent one.
-	if _, err := os.Lstat(project); err == nil {
-		return "", fmt.Errorf("rolespawn: project role body %s is a dangling symlink", project)
+	project, err := projectRoleBody(projectRoot, name)
+	if err != nil || project != "" {
+		return project, err
 	}
 	body, err := fs.ReadFile(spore.BundledRoles, "bootstrap/roles/"+name)
 	if err != nil {
 		return "", fmt.Errorf("rolespawn: role body %s: not in %s and not bundled: %w", name, dir, err)
 	}
 	if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-		fmt.Fprintf(roleWarnings, "rolespawn: %s has no %s; using the bundled body alongside project overrides\n", dir, name)
+		warnRoleOnce("rolespawn: %s has no %s; using the bundled body alongside project overrides\n", dir, name)
 	}
 	state, err := task.StateDirForProject(projectRoot)
 	if err != nil {
@@ -59,4 +62,35 @@ func ResolveRoleBody(projectRoot, name string) (string, error) {
 		return "", fmt.Errorf("rolespawn: materialize role body %s: %w", name, err)
 	}
 	return path, nil
+}
+
+// projectRoleBody returns the project override for name, or "" when
+// no path component exists. A component that exists but is broken
+// (dangling symlink, unreadable, wrong type) is an error, not an
+// absence: falling back would silently drop a customized body.
+func projectRoleBody(projectRoot, name string) (string, error) {
+	p := projectRoot
+	parts := []string{"bootstrap", "roles", name}
+	for i, part := range parts {
+		p = filepath.Join(p, part)
+		_, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("rolespawn: project role body %s: %w", p, err)
+		}
+		fi, err := os.Stat(p)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return "", fmt.Errorf("rolespawn: project role body %s is a dangling symlink", p)
+		case err != nil:
+			return "", fmt.Errorf("rolespawn: project role body %s: %w", p, err)
+		case i < len(parts)-1 && !fi.IsDir():
+			return "", fmt.Errorf("rolespawn: project role body %s: not a directory", p)
+		case i == len(parts)-1 && !fi.Mode().IsRegular():
+			return "", fmt.Errorf("rolespawn: project role body %s: not a regular file", p)
+		}
+	}
+	return p, nil
 }
