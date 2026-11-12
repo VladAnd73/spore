@@ -27,7 +27,7 @@ type RoleSpawnSpec struct {
 	ReviewerInstance task.ReviewerInstance
 	// RoleBodyPath is the absolute path to the role markdown that
 	// the agent should consume as its first user message.
-	// Defaults to <ProjectRoot>/bootstrap/roles/<Role>.md, or
+	// Defaults to ResolveRoleBody of <Role>.md, or of
 	// reviewer-code-review.md for a reviewer slot in code-review mode.
 	RoleBodyPath string
 	// Cwd is the working directory for the pane. Defaults to the
@@ -82,13 +82,9 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		return nil, err
 	}
 
-	var slot ReviewerSlot
-	if s.Role == "reviewer" {
-		cfg, err := LoadReviewersConfig(s.ProjectRoot)
-		if err != nil {
-			return nil, err
-		}
-		slot = cfg.Slot(s.ReviewerInstance)
+	slot, meta, agent, err := s.resolve()
+	if err != nil {
+		return nil, err
 	}
 	rolePath := s.RoleBodyPath
 	if rolePath == "" {
@@ -96,21 +92,15 @@ func (s RoleSpawnSpec) TmuxArgs() ([]string, error) {
 		if slot.Mode == ReviewerModeCodeReview {
 			body = "reviewer-code-review.md"
 		}
-		rolePath = filepath.Join(s.ProjectRoot, "bootstrap", "roles", body)
-		// A missing body would boot a bare agent with no protocol;
-		// only the new body can be absent in a consumer that links
-		// role bodies one by one.
-		if slot.Mode == ReviewerModeCodeReview {
-			if _, err := os.Stat(rolePath); err != nil {
-				return nil, fmt.Errorf("rolespawn: reviewer %s mode %q needs %s: %w", s.ReviewerInstance, ReviewerModeCodeReview, rolePath, err)
-			}
+		if rolePath, err = ResolveRoleBody(s.ProjectRoot, body); err != nil {
+			return nil, err
 		}
 	}
 	cwd := s.Cwd
 	if cwd == "" {
 		cwd = filepath.Join(s.ProjectRoot, ".worktrees", s.Slug)
 	}
-	withBody, bare, err := s.invocations(slot)
+	withBody, bare, err := s.invocations(agent, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -165,32 +155,63 @@ func commitIdentityEnv(projectRoot string) []string {
 	return out
 }
 
-// invocations returns the pane's agent command with and without a
-// role body (see agentInvocations). A reviewer slot's agent beats
-// roleAgent; a code-review slot without one runs claude.
-func (s RoleSpawnSpec) invocations(slot ReviewerSlot) (withBody, bare string, err error) {
-	if s.Agent != "" {
-		withBody, bare = agentInvocations(s.Agent)
-		return withBody, bare, nil
+// resolve settles the pane's reviewer slot and agent in one place.
+// Agent: the spec's Agent, else the slot's, else claude for an
+// explicit code-review slot, else roleAgent. A defaulted code-review
+// slot whose agent is non-claude drops to fleet; Effort is filled in
+// code-review mode and cleared, with a warning, in fleet mode. Like
+// the agent itself, the defaulted mode follows the config at each
+// spawn, so editing the agent config mid-task can switch A's protocol
+// between rounds (see docs/role-loop.md).
+func (s RoleSpawnSpec) resolve() (slot ReviewerSlot, meta frontmatter.Meta, agent string, err error) {
+	if s.Role == "reviewer" {
+		cfg, err := LoadReviewersConfig(s.ProjectRoot)
+		if err != nil {
+			return slot, meta, "", err
+		}
+		slot = cfg.Slot(s.ReviewerInstance)
 	}
-	tasksDir := s.TasksDir
-	if tasksDir == "" {
-		tasksDir = filepath.Join(s.ProjectRoot, "tasks")
-	}
-	meta, err := readRoleTaskMeta(tasksDir, s.Slug)
-	if err != nil {
-		return "", "", err
-	}
-	agent := slot.Agent
-	if agent == "" && slot.Mode == ReviewerModeCodeReview {
-		agent = "claude"
-	}
-	if agent == "" {
-		if agent, err = roleAgent(s.ProjectRoot, meta); err != nil {
-			return "", "", err
+	if s.Agent == "" {
+		tasksDir := s.TasksDir
+		if tasksDir == "" {
+			tasksDir = filepath.Join(s.ProjectRoot, "tasks")
+		}
+		if meta, err = readRoleTaskMeta(tasksDir, s.Slug); err != nil {
+			return slot, meta, "", err
 		}
 	}
-	if agent != "codex" {
+	switch {
+	case s.Agent != "":
+		agent = s.Agent
+	case slot.Agent != "":
+		agent = slot.Agent
+	case slot.Mode == ReviewerModeCodeReview && !slot.DefaultMode:
+		agent = "claude"
+	default:
+		if agent, err = roleAgent(s.ProjectRoot, meta); err != nil {
+			return slot, meta, "", err
+		}
+	}
+	if s.Role != "reviewer" {
+		return slot, meta, agent, nil
+	}
+	if slot.Mode == ReviewerModeCodeReview && slot.DefaultMode && !isClaudeAgent(agent) {
+		slot.Mode = ReviewerModeFleet
+	}
+	switch {
+	case slot.Mode == ReviewerModeCodeReview && slot.Effort == "":
+		slot.Effort = DefaultReviewEffort
+	case slot.Mode == ReviewerModeFleet && slot.Effort != "":
+		warnRoleOnce("rolespawn: %s [fleet.reviewers.%s] effort %q ignored: slot runs in %s mode with agent %q\n", s.ProjectRoot, s.ReviewerInstance, slot.Effort, ReviewerModeFleet, agent)
+		slot.Effort = ""
+	}
+	return slot, meta, agent, nil
+}
+
+// invocations returns the pane's agent command with and without a
+// role body (see agentInvocations) for the agent resolve picked.
+func (s RoleSpawnSpec) invocations(agent string, meta frontmatter.Meta) (withBody, bare string, err error) {
+	if s.Agent != "" || agent != "codex" {
 		withBody, bare = agentInvocations(agent)
 		return withBody, bare, nil
 	}

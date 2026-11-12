@@ -11,9 +11,9 @@ import (
 )
 
 // Reviewer slot modes: how a reviewer pane produces its verdict file.
-// ReviewerModeFleet runs bootstrap/roles/reviewer.md;
-// ReviewerModeCodeReview runs bootstrap/roles/reviewer-code-review.md,
-// which drives Claude Code's built-in /code-review skill.
+// ReviewerModeFleet runs the reviewer.md role body;
+// ReviewerModeCodeReview runs reviewer-code-review.md, which drives
+// Claude Code's built-in /code-review skill. See ResolveRoleBody.
 const (
 	ReviewerModeFleet      = "fleet"
 	ReviewerModeCodeReview = "code-review"
@@ -28,10 +28,15 @@ var reviewEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 // ReviewerSlot is one `[fleet.reviewers.<A|B>]` table, overlaid by
 // the host-side workers.toml key by key. Agent "" means the slot
 // follows roleAgent, except in code-review mode, which is claude-only.
+// DefaultMode marks a Mode no config set. Mode and Effort of a loaded
+// slot are provisional: the role spawn settles them (see
+// RoleSpawnSpec.resolve), dropping a defaulted code-review slot to
+// fleet when its agent resolves to non-claude and filling Effort.
 type ReviewerSlot struct {
-	Mode   string
-	Agent  string
-	Effort string
+	Mode        string
+	Agent       string
+	Effort      string
+	DefaultMode bool
 }
 
 // ReviewersConfig holds the resolved slot for each reviewer instance.
@@ -55,8 +60,9 @@ func (c *ReviewersConfig) slot(inst task.ReviewerInstance) *ReviewerSlot {
 
 // LoadReviewersConfig reads `[fleet.reviewers.A]` and
 // `[fleet.reviewers.B]` from spore.toml, then the host overlay (see
-// WorkersOverlayPath). Absent tables leave a slot in fleet mode, so a
-// project without the keys keeps the two-pass fleet review.
+// WorkersOverlayPath). Without a `mode`, A defaults to code-review
+// and B to fleet: bug hunt first, spec and verification second. The
+// spawn settles the effective mode and effort (see ReviewerSlot).
 func LoadReviewersConfig(projectRoot string) (ReviewersConfig, error) {
 	var cfg ReviewersConfig
 	paths := []string{filepath.Join(projectRoot, "spore.toml")}
@@ -112,7 +118,11 @@ func finishReviewerSlot(slot *ReviewerSlot, inst task.ReviewerInstance) error {
 	section := "[fleet.reviewers." + string(inst) + "]"
 	switch slot.Mode {
 	case "":
+		slot.DefaultMode = true
 		slot.Mode = ReviewerModeFleet
+		if inst == task.ReviewerA {
+			slot.Mode = ReviewerModeCodeReview
+		}
 	case ReviewerModeFleet, ReviewerModeCodeReview:
 	default:
 		return fmt.Errorf("reviewers: %s mode %q: want %q or %q", section, slot.Mode, ReviewerModeFleet, ReviewerModeCodeReview)
@@ -123,14 +133,8 @@ func finishReviewerSlot(slot *ReviewerSlot, inst task.ReviewerInstance) error {
 	if slot.Effort != "" && !slices.Contains(reviewEfforts, slot.Effort) {
 		return fmt.Errorf("reviewers: %s effort %q: want one of %v", section, slot.Effort, reviewEfforts)
 	}
-	if slot.Mode != ReviewerModeCodeReview {
-		return nil
-	}
-	if slot.Agent != "" && !isClaudeAgent(slot.Agent) {
+	if slot.Mode == ReviewerModeCodeReview && !slot.DefaultMode && slot.Agent != "" && !isClaudeAgent(slot.Agent) {
 		return fmt.Errorf("reviewers: %s mode %q runs a Claude Code skill and needs agent claude, got %q", section, ReviewerModeCodeReview, slot.Agent)
-	}
-	if slot.Effort == "" {
-		slot.Effort = DefaultReviewEffort
 	}
 	return nil
 }

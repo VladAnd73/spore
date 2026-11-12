@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -20,6 +21,12 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	if err := os.Setenv("TMUX_TMPDIR", tmpdir); err != nil {
+		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+		os.Exit(2)
+	}
+	// Role spawns materialize bundled bodies under the state dir;
+	// keep them off the host's real one.
+	if err := os.Setenv("XDG_STATE_HOME", filepath.Join(tmpdir, "state")); err != nil {
 		fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
 		os.Exit(2)
 	}
