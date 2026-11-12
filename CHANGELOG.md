@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Role loop: a PR adopted from before the loop (an open PR already on
+  the task branch) now gets the operator added as assignee
+  (`gh pr edit --add-assignee <operator_login>`), matching what
+  `pr create` sets on PRs the loop opens itself. Before, adopted PRs
+  reached ready with no assignee.
+
 - Tests: `TestProbeRolePaneTmux` no longer flakes under load. It
   polls the live pane until the exec lands and sets `remain-on-exit`
   in the same tmux call that creates the dead pane.

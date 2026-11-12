@@ -29,7 +29,7 @@ done
 if [ -e "$FAKE_GH_FAIL.sleep" ]; then sleep 30; fi
 if [ -e "$FAKE_GH_FAIL" ]; then echo "gh exploded, request id $$" >&2; exit 1; fi
 case "$1 $2" in
-  "pr list") echo '[]' ;;
+  "pr list") if [ -n "$FAKE_GH_OPEN_PR" ]; then echo "$FAKE_GH_OPEN_PR"; else echo '[]'; fi ;;
   "pr create") echo "https://github.com/acme/widget/pull/12" ;;
 esac
 `
@@ -477,6 +477,22 @@ func TestAbsPathRE(t *testing.T) {
 		if got := absPathRE.MatchString(in); got != want {
 			t.Errorf("absPathRE(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// TestGitHubMirrorAdoptedPRAssignsOperator: a PR opened before the
+// role loop took the task over must still land on the operator.
+func TestGitHubMirrorAdoptedPRAssignsOperator(t *testing.T) {
+	f := newMirrorFixture(t, "draft")
+	t.Setenv("FAKE_GH_OPEN_PR", `[{"number":7,"url":"https://github.com/acme/widget/pull/7"}]`)
+	writeEng(1)(t, f.root, f.slug)
+	f.tick(t)
+	want := []string{
+		"pr list --head wt/demo --state open --json number,url --limit 1",
+		"pr edit 7 --add-assignee octo",
+	}
+	if got := f.calls(t); !reflect.DeepEqual(got, want) {
+		t.Fatalf("adopt calls:\n got %q\nwant %q", got, want)
 	}
 }
 
